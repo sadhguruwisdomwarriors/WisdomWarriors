@@ -37,7 +37,16 @@ def run_profiles_actor(
         "usernames": usernames,
         "includeAboutSection": False,
     }
-    run = client.actor(settings.apify_profiles_actor_id).call(run_input=run_input)
+    run_obj = client.actor(settings.apify_profiles_actor_id).call(run_input=run_input)
+        # --- BUG FIX: Safely convert 'Run' object to dictionary if needed ---
+    if not isinstance(run_obj, dict):
+        try:
+            run = run_obj.model_dump() if hasattr(run_obj, "model_dump") else run_obj.dict() if hasattr(run_obj, "dict") else vars(run_obj)
+        except Exception:
+            run = {k: getattr(run_obj, k) for k in dir(run_obj) if not k.startswith('_')}
+    else:
+        run = run_obj
+    # --------------------------------------------------------------------
     items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
     
     # Capture logs from the run
