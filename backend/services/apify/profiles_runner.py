@@ -44,6 +44,11 @@ def run_profiles_actor(
             run = run_obj.model_dump() if hasattr(run_obj, "model_dump") else run_obj.dict() if hasattr(run_obj, "dict") else vars(run_obj)
         except Exception:
             run = {k: getattr(run_obj, k) for k in dir(run_obj) if not k.startswith('_')}
+            
+        # Add aliases so the old camelCase code still works perfectly!
+        if "default_dataset_id" in run: run["defaultDatasetId"] = run["default_dataset_id"]
+        if "started_at" in run: run["startedAt"] = run["started_at"]
+        if "finished_at" in run: run["finishedAt"] = run["finished_at"]
     else:
         run = run_obj
     # --------------------------------------------------------------------
