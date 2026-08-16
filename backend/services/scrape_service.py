@@ -598,7 +598,22 @@ async def run_posts_scrape(
                                 continue
 
                             owner_username = _normalize_username_key(norm.get("owner_username") or username)
-                            if owner_username != _normalize_username_key(username):
+                            target_username = _normalize_username_key(username)
+
+                            # Keep post if target channel is owner OR a collaborator
+                            participants = [owner_username]
+                            coauthors_raw = norm.get("coauthor_producers") or []
+                            for coauthor in coauthors_raw:
+                                if isinstance(coauthor, str):
+                                    participants.append(_normalize_username_key(coauthor))
+                                elif isinstance(coauthor, dict):
+                                    for key in ("username", "userName", "ownerUsername", "handle"):
+                                        val = coauthor.get(key)
+                                        if isinstance(val, str) and val.strip():
+                                            participants.append(_normalize_username_key(val))
+                                            break
+
+                            if target_username not in participants:
                                 continue
 
                             norm["owner_username"] = owner_username
