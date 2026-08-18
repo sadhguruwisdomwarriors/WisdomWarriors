@@ -34,7 +34,10 @@ from backend.schemas.scrape import (
     ScrapeStatusRead,
     ScrapeRunRead,
     ScrapeRunListResponse,
+    ValidateHandlesRequest,
+    ValidateHandlesResponseRead,
 )
+from backend.services.handle_validation_service import validate_and_resolve_handles
 from backend.repositories.scrape_profile_repo import (
     list_scrape_profiles,
     replace_scrape_profiles,
@@ -261,6 +264,15 @@ async def update_profiles_source(body: ProfilesSourceUpdate, db: AsyncSession = 
     usernames = await replace_scrape_profiles(db, body.usernames)
     await db.commit()
     return ProfilesSourceRead(usernames=usernames)
+
+
+@router.post("/validate-handles", response_model=ValidateHandlesResponseRead)
+async def validate_handles(
+    body: ValidateHandlesRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ValidateHandlesResponseRead:
+    result = await validate_and_resolve_handles(db, body.handles, body.apify_token)
+    return ValidateHandlesResponseRead.model_validate(result)
 
 
 @router.post("/run", response_model=ScrapeStartRead)

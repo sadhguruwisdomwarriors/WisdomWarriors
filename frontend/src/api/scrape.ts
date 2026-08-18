@@ -33,6 +33,25 @@ export interface ScrapeStartResponse {
   action?: string
 }
 
+export interface HandleValidationItem {
+  submitted_handle: string
+  normalized_handle: string
+  status: "FOUND" | "NOT_FOUND" | "ERROR"
+  instagram_id?: string | null
+  current_handle?: string | null
+  source?: "database" | "apify_lookup" | null
+  instagram_url: string
+  error_message?: string | null
+}
+
+export interface ValidateHandlesResponse {
+  total: number
+  found_count: number
+  not_found_count: number
+  error_count: number
+  results: HandleValidationItem[]
+}
+
 export interface ProfilesSourceResponse {
   usernames: string[]
 }
@@ -118,6 +137,13 @@ export const triggerScrape = (body: ScrapeRequest): Promise<ScrapeStartResponse>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  }).then(r => r.json())
+
+export const validateHandles = (handles: string[], apifyToken?: string): Promise<ValidateHandlesResponse> =>
+  fetch(`${API_URL}/api/scrape/validate-handles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handles, apify_token: apifyToken }),
   }).then(r => r.json())
 
 export const triggerCombinedScrape = (body: CombinedScrapeRequest): Promise<ScrapeStartResponse> =>

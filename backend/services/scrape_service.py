@@ -913,7 +913,14 @@ async def run_profiles_scrape(
                         norm = normalize_profile(raw)
                         if not norm["id"] or not norm["username"]:
                             continue
-                        if _normalize_username_key(norm["username"]) != _normalize_username_key(username):
+
+                        matched_by_history = False
+                        if norm.get("id"):
+                            hist_profile = await profile_repo.get_profile_by_handle_or_history(db, username)
+                            if hist_profile and str(hist_profile.id) == str(norm["id"]):
+                                matched_by_history = True
+
+                        if _normalize_username_key(norm["username"]) != _normalize_username_key(username) and not matched_by_history:
                             continue
 
                         existing_profile = await db.get(Profile, norm["id"])

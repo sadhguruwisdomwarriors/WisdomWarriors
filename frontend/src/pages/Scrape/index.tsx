@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { fetchProfilesSource, fetchRunProfileProgress, fetchScrapeStatus, refetchRunFromApify, resumePendingPosts, triggerScrape } from "../../api/scrape"
+import { fetchProfilesSource, fetchRunProfileProgress, fetchScrapeStatus, refetchRunFromApify, resumePendingPosts, triggerScrape, validateHandles, type ValidateHandlesResponse } from "../../api/scrape"
 import { RecentRunsTable } from "../Dashboard/RecentRunsTable"
 import type { ScrapeRun } from "../../types/schedule"
 
@@ -43,7 +43,36 @@ export default function ScrapePage() {
   const [refetchRunIdText, setRefetchRunIdText] = useState("")
   const [includeRefetchLogs, setIncludeRefetchLogs] = useState(true)
   const [refetchStage, setRefetchStage] = useState<{ runId: number; stage: "posts" | "profiles" } | null>(null)
+  
+  // Pre-scrape Instagram ID Validation state
+  const [isValidating, setIsValidating] = useState(false)
+  const [validationData, setValidationData] = useState<ValidateHandlesResponse | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
+
   const usernames = parseUsernames(profilesText)
+
+  const handleValidateHandles = async () => {
+    if (usernames.length === 0 || isValidating || isScrapeBusy) return
+    setIsValidating(true)
+    setValidationError(null)
+    try {
+      const res = await validateHandles(usernames, apifyToken.trim() || undefined)
+      setValidationData(res)
+    } catch (err) {
+      setValidationError(err instanceof Error ? err.message : "Validation failed")
+    } finally {
+      setIsValidating(false)
+    }
+  }
+
+  const handleResetValidation = () => {
+    setValidationData(null)
+    setValidationError(null)
+  }
+
+  const resolvedHandles = validationData
+    ? validationData.results.filter(r => r.status === "FOUND").map(r => r.current_handle || r.normalized_handle)
+    : usernames
 
   const { data: statusData } = useQuery({
     queryKey: ["scrape-status", activeRunId],
@@ -137,17 +166,18 @@ export default function ScrapePage() {
   }, [apifyToken])
 
   const handleCombinedScrape = async () => {
-    if (isScrapeBusy || usernames.length === 0 || hasInvalidDateRange) return
+    const targetUsernames = validationData ? resolvedHandles : usernames
+    if (isScrapeBusy || targetUsernames.length === 0 || hasInvalidDateRange) return
 
     const startedAt = new Date().toLocaleTimeString()
     setIsScrapeLocked(true)
     setLiveLogs([
-      `[${startedAt}] Starting posts scrape...`,
-      `[${startedAt}] Submitting ${usernames.length} profile(s) for scraping...`,
+      `[${startedAt}] Starting posts scrape for ${targetUsernames.length} resolved profile(s)...`,
+      `[${startedAt}] Submitting ${targetUsernames.length} profile(s) for scraping...`,
     ])
     try {
       const req: Parameters<typeof triggerScrape>[0] = {
-        usernames: usernames,
+        usernames: targetUsernames,
         scraper_type: "posts",
         batch_mode: batchMode,
         results_limit: resultsLimit,
@@ -391,16 +421,154 @@ export default function ScrapePage() {
           </span>
           <span>Removes duplicates automatically.</span>
         </div>
-        <div className="flex justify-center pt-2">
+        <div className="flex justify-center gap-3 pt-2">
+          <button
+            onClick={handleValidateHandles}
+            className="px-4 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
+            disabled={usernames.length === 0 || isScrapeBusy || isValidating}
+          >
+            {isValidating ? "🔍 Validating Instagram IDs…" : "🔍 Check Instagram IDs"}
+          </button>
           <button
             onClick={() => setShowPostsModal(true)}
-            className="px-3 py-1.5 text-xs bg-fuchsia-600 hover:bg-fuchsia-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-            disabled={usernames.length === 0 || isScrapeBusy}
+            className="px-4 py-2 text-xs bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
+            disabled={usernames.length === 0 || isScrapeBusy || (validationData !== null && resolvedHandles.length === 0)}
           >
-            {isScrapeBusy ? "🧙 Scrape in Progress…" : "🧙 Scrape Wisdom Warriors"}
+            {isScrapeBusy ? "🧙 Scrape in Progress…" : `🧙 Scrape Wisdom Warriors (${validationData ? resolvedHandles.length : usernames.length})`}
           </button>
         </div>
       </div>
+
+      {/* Validation State 2: Loading UI */}
+      {isValidating && (
+        <div className="rounded-xl border border-blue-800 bg-blue-950/40 p-5 space-y-3 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+            <span className="text-sm font-semibold text-blue-200">Checking & Resolving Instagram IDs...</span>
+          </div>
+          <p className="text-xs text-blue-300">Searching local database first, then resolving missing IDs via Instagram lookup. Please wait...</p>
+        </div>
+      )}
+
+      {validationError && (
+        <div className="rounded-xl border border-red-800 bg-red-950/40 p-4 text-xs text-red-300">
+          Validation error: {validationError}
+        </div>
+      )}
+
+      {/* Validation State 3 & 4: Validation Summary & Itemized Checked Profiles */}
+      {validationData && !isValidating && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-800 pb-4">
+            <div>
+              <h2 className="text-base font-bold text-gray-100 flex items-center gap-2">
+                <span>🔍 Instagram ID Validation Complete</span>
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Instagram IDs resolved for submitted handles before scraping begins.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleResetValidation}
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors font-medium"
+              >
+                ✏️ Re-paste Handles
+              </button>
+              <button
+                onClick={() => setShowPostsModal(true)}
+                disabled={validationData.found_count === 0 || isScrapeBusy}
+                className="px-4 py-1.5 text-xs bg-gradient-to-r from-fuchsia-600 to-blue-600 hover:from-fuchsia-500 hover:to-blue-500 text-white rounded-lg transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                🚀 Start Scraping ({validationData.found_count} Ready)
+              </button>
+            </div>
+          </div>
+
+          {/* Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">
+              <p className="text-xs text-gray-400">Total Handles Submitted</p>
+              <p className="text-lg font-bold text-gray-100 mt-0.5">{validationData.total}</p>
+            </div>
+            <div className="rounded-lg border border-emerald-900/60 bg-emerald-950/30 p-3">
+              <p className="text-xs text-emerald-400 font-medium">Instagram IDs Found</p>
+              <p className="text-lg font-bold text-emerald-200 mt-0.5">{validationData.found_count}</p>
+            </div>
+            <div className="rounded-lg border border-red-900/60 bg-red-950/30 p-3">
+              <p className="text-xs text-red-400 font-medium">Instagram IDs Not Found</p>
+              <p className="text-lg font-bold text-red-200 mt-0.5">{validationData.not_found_count + validationData.error_count}</p>
+            </div>
+          </div>
+
+          {/* Unresolved Banner */}
+          {validationData.not_found_count + validationData.error_count > 0 ? (
+            <div className="rounded-lg border border-amber-900/80 bg-amber-950/40 p-3 text-xs text-amber-200 space-y-1">
+              <p className="font-semibold">⚠️ {validationData.not_found_count + validationData.error_count} handle(s) could not be associated with an Instagram ID:</p>
+              <p className="text-amber-300/80">
+                Click "Start Scraping" to scrape the {validationData.found_count} resolved account(s) and skip unresolved ones, or click "Re-paste Handles" to return and edit the handles list.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-900/80 bg-emerald-950/40 p-3 text-xs text-emerald-200 font-medium">
+              ✅ All {validationData.total} Instagram IDs have been successfully resolved and are ready for scraping!
+            </div>
+          )}
+
+          {/* Checked Profiles List with Clickable Links */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold text-gray-300">Checked Profiles & Clickable Links</h3>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-800 bg-gray-950 divide-y divide-gray-800/60">
+              {validationData.results.map((item, idx) => (
+                <div key={`${item.submitted_handle}-${idx}`} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs">
+                  <div className="flex items-center gap-3 min-w-48">
+                    <span className="font-mono text-gray-400 text-[11px] w-6">{idx + 1}.</span>
+                    <div>
+                      <div className="font-medium text-gray-200 flex items-center gap-2">
+                        <span>@{item.submitted_handle}</span>
+                        {item.current_handle && item.current_handle.toLowerCase() !== item.submitted_handle.toLowerCase() && (
+                          <span className="text-[10px] text-purple-300 bg-purple-950/80 border border-purple-800 rounded px-1.5 py-0.5">
+                            Renamed to @{item.current_handle}
+                          </span>
+                        )}
+                      </div>
+                      {item.instagram_id && (
+                        <div className="text-[11px] text-gray-500 font-mono">
+                          ID: {item.instagram_id} ({item.source === "database" ? "DB Match" : "Live Lookup"})
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {/* Clickable link */}
+                    <a
+                      href={item.instagram_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline"
+                    >
+                      <span>View on Instagram</span>
+                      <span className="text-[10px]">↗</span>
+                    </a>
+
+                    {/* Status Badge */}
+                    {item.status === "FOUND" ? (
+                      <span className="inline-flex items-center rounded-full border border-emerald-800 bg-emerald-950/80 px-2.5 py-0.5 text-[11px] font-medium text-emerald-300">
+                        ID Found
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border border-red-800 bg-red-950/80 px-2.5 py-0.5 text-[11px] font-medium text-red-300" title={item.error_message || undefined}>
+                        ID Not Found
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
         <div>
           <div className="flex items-center gap-2">

@@ -3,23 +3,71 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.profile import Profile
 from backend.models.profile_snapshot import ProfileSnapshot
+from backend.models.profile_handle_history import ProfileHandleHistory
+
+
+async def record_handle_history(db: AsyncSession, profile_id: str, handle: str) -> None:
+    clean_handle = (handle or "").strip().lstrip("@").lower()
+    if not clean_handle or not profile_id:
+        return
+    existing = await db.execute(
+        select(ProfileHandleHistory)
+        .where(ProfileHandleHistory.profile_id == profile_id)
+        .where(func.lower(ProfileHandleHistory.handle) == clean_handle)
+        .limit(1)
+    )
+    if existing.scalar_one_or_none() is None:
+        db.add(ProfileHandleHistory(profile_id=profile_id, handle=clean_handle))
+        await db.flush()
 
 
 async def upsert_profile(db: AsyncSession, data: dict) -> Profile:
-    profile = await db.get(Profile, data["id"])
+    profile_id = str(data.get("id", "")).strip()
+    new_username = data.get("username", "").strip()
+
+    profile = await db.get(Profile, profile_id) if profile_id else None
     if profile is None:
         profile = Profile(**data)
         db.add(profile)
     else:
+        old_username = profile.username
         for k, v in data.items():
             setattr(profile, k, v)
+        if old_username:
+            await record_handle_history(db, profile_id, old_username)
+
     await db.flush()
+    if profile_id and new_username:
+        await record_handle_history(db, profile_id, new_username)
     return profile
 
 
 async def get_profile_by_username(db: AsyncSession, username: str) -> Optional[Profile]:
-    result = await db.execute(select(Profile).where(Profile.username == username))
+    clean_name = (username or "").strip().lstrip("@").lower()
+    result = await db.execute(select(Profile).where(func.lower(Profile.username) == clean_name))
     return result.scalar_one_or_none()
+
+
+async def get_profile_by_handle_or_history(db: AsyncSession, handle: str) -> Optional[Profile]:
+    clean_handle = (handle or "").strip().lstrip("@").lower()
+    if not clean_handle:
+        return None
+
+    # First check profiles.username
+    direct_match = await get_profile_by_username(db, clean_handle)
+    if direct_match is not None:
+        return direct_match
+
+    # Second check profile_handle_history table
+    history_match = await db.execute(
+        select(ProfileHandleHistory.profile_id)
+        .where(func.lower(ProfileHandleHistory.handle) == clean_handle)
+        .limit(1)
+    )
+    profile_id = history_match.scalar_one_or_none()
+    if profile_id:
+        return await db.get(Profile, profile_id)
+    return None
 
 
 async def list_profiles(

@@ -34,6 +34,30 @@ class ScrapeRunRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ValidateHandlesRequest(BaseModel):
+    handles: list[str]
+    apify_token: Optional[str] = None
+
+
+class HandleValidationItemRead(BaseModel):
+    submitted_handle: str
+    normalized_handle: str
+    status: str              # 'FOUND' | 'NOT_FOUND' | 'ERROR'
+    instagram_id: Optional[str] = None
+    current_handle: Optional[str] = None
+    source: Optional[str] = None       # 'database' | 'apify_lookup'
+    instagram_url: str
+    error_message: Optional[str] = None
+
+
+class ValidateHandlesResponseRead(BaseModel):
+    total: int
+    found_count: int
+    not_found_count: int
+    error_count: int
+    results: list[HandleValidationItemRead]
+
+
 class ScrapeRequest(BaseModel):
     scraper_type: str                       # 'posts' | 'profiles'
     usernames: Optional[list[str]] = None   # override profiles file
