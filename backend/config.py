@@ -4,16 +4,16 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Database
-    database_url: str
+    database_url: str = ""
 
     # Apify
-    apify_token: str
+    apify_token: str = ""
     apify_posts_actor_id: str = "xMc5Ga1oCONPmWJIa"
     apify_profiles_actor_id: str = "dSCLg0C3YEZ83HzYX"
     profiles_file: str = "Insta Profiles.txt"
 
     # OpenAI
-    openai_api_key: str
+    openai_api_key: str = ""
 
     # Scraping
     profile_scrape_parallelism: int = 6
