@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # JWT Authentication
+    jwt_secret_key: str = "wisdom-warriors-secret-key-change-in-production"
+    jwt_algorithm: str = "HS256" 
+    jwt_expire_minutes: int = 1440
+
     # Scraping
     profile_scrape_parallelism: int = 6
     apify_actor_timeout_seconds: int = 900

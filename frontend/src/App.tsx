@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom"
-import { LayoutDashboard, Users, FileText, CalendarClock, MessageSquare, Search, ShieldCheck, ChevronDown, ChevronRight, GitCompare, Swords } from "lucide-react"
+import { LayoutDashboard, Users, FileText, CalendarClock, MessageSquare, Search, ShieldCheck, ChevronDown, ChevronRight, GitCompare, Swords, Grid3X3 } from "lucide-react"
 import { clsx } from "clsx"
 import DashboardPage from "./pages/Dashboard"
 import ProfilesPage from "./pages/Profiles"
@@ -13,6 +13,8 @@ import ChatPage from "./pages/Chat"
 import ScrapePage from "./pages/Scrape"
 import CompareRunsPage from "./pages/CompareRuns"
 import WisdomWarriorsPage from "./pages/WisdomWarriors"
+import MicroUnitsPage from "./pages/MicroUnits"
+import PocDashboardView from "./pages/MicroUnits/PocDashboardView"
 import { fetchWisdomWarriorsSnapshotRuns, type WisdomWarriorSnapshotRun } from "./api/wisdomWarriors"
 
 const formatLocalDate = (value: string): string => {
@@ -27,6 +29,7 @@ const formatLocalDate = (value: string): string => {
 const NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", end: true },
   { to: "/wisdom-warriors", icon: Swords, label: "Wisdom Warriors" },
+  { to: "/micro-units", icon: Grid3X3, label: "Micro Units" },
   { to: "/profiles", icon: Users, label: "Profiles" },
   { to: "/posts", icon: FileText, label: "Posts" },
   { to: "/chat", icon: MessageSquare, label: "AI Chat" },
@@ -49,7 +52,19 @@ function Sidebar() {
 
   return (
     <aside className="w-56 flex-shrink-0 border-r border-gray-800 flex flex-col py-6 px-3 gap-1">
-      <div className="px-3 mb-6">
+      <div className="px-3 mb-6 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#ig-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <defs>
+            <linearGradient id="ig-grad" x1="2" y1="2" x2="22" y2="22">
+              <stop offset="0%" stopColor="#f59e0b" />
+              <stop offset="50%" stopColor="#ec4899" />
+              <stop offset="100%" stopColor="#8b5cf6" />
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+          <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+        </svg>
         <span className="text-lg font-bold text-white tracking-tight">Wisdom Warriors - Analytics</span>
       </div>
       {NAV.map(({ to, icon: Icon, label, end }) => (
@@ -170,7 +185,10 @@ function Sidebar() {
   )
 }
 
-export default function App() {
+function AppContent() {
+  const location = useLocation()
+  const isMicroUnits = location.pathname.startsWith("/micro-units")
+
   const [selectedSnapshotRunId, setSelectedSnapshotRunId] = useState<number | undefined>(undefined)
   const [selectedMonth, setSelectedMonth] = useState("")
   const [selectedDateFrom, setSelectedDateFrom] = useState("")
@@ -227,10 +245,10 @@ export default function App() {
     : (hasInvalidDateRange ? "Invalid date range" : "No runs in selected range")
 
   return (
-    <BrowserRouter>
-      <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto pr-4 md:pr-6 lg:pr-8">
+    <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto pr-4 md:pr-6 lg:pr-8">
+        {!isMicroUnits && (
           <div className="sticky top-0 z-10 border-b border-gray-800 bg-gray-950/95 backdrop-blur px-4 py-2 text-xs text-gray-300">
             <div className="flex flex-wrap items-center gap-2">
               <label htmlFor="global-scraped-at" className="text-gray-300">Last scraped at:</label>
@@ -285,6 +303,8 @@ export default function App() {
               )}
             </div>
           </div>
+        )}
+        <div className={isMicroUnits ? "p-6" : ""}>
           <Routes>
             <Route
               path="/"
@@ -300,6 +320,8 @@ export default function App() {
               path="/wisdom-warriors"
               element={<WisdomWarriorsPage selectedSnapshotRunId={selectedSnapshotRunId} selectedMonth={selectedMonth || undefined} />}
             />
+            <Route path="/micro-units" element={<MicroUnitsPage />} />
+            <Route path="/micro-units/:id" element={<PocDashboardView />} />
             <Route path="/scrape-instagram" element={<ScrapePage />} />
             <Route path="/scrape-instagram/hashtag-scraper" element={<ScrapePage />} />
             <Route path="/scrape-instagram/mentions-scraper" element={<ScrapePage />} />
@@ -313,8 +335,16 @@ export default function App() {
             <Route path="/schedules" element={<SchedulesPage />} />
             <Route path="/chat" element={<ChatPage />} />
           </Routes>
-        </main>
-      </div>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
     </BrowserRouter>
   )
 }

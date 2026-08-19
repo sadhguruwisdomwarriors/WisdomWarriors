@@ -9,7 +9,7 @@ from backend.repositories.scrape_run_repo import fail_incomplete_runs
 from backend.services.scheduler.setup import start_scheduler, stop_scheduler
 from backend.services.scheduler.jobs import load_all_schedules
 from backend.services.scrape_service import resume_incomplete_runs_on_startup
-from backend.routers import scrape, schedules, profiles, posts, analytics, chat
+from backend.routers import scrape, schedules, profiles, posts, analytics, chat, auth, micro_units
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for router in [scrape.router, schedules.router, profiles.router, posts.router, analytics.router, chat.router]:
+    for router in [scrape.router, schedules.router, profiles.router, posts.router, analytics.router, chat.router, auth.router, micro_units.router]:
         app.include_router(router)
     return app
 
