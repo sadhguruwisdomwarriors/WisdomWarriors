@@ -22,10 +22,12 @@ class MicroUnitUpdate(BaseModel):
     name: Optional[str] = None
     poc_user_id: Optional[int] = None
 
+from backend.models.profile import Profile
+
 class ChannelAdd(BaseModel):
-    instagram_id: str
     username: str
-    creator_name: str
+    instagram_id: Optional[str] = None
+    creator_name: Optional[str] = None
 
 class MonthCalculation(BaseModel):
     month: int
@@ -99,13 +101,35 @@ async def delete_micro_unit(id: int, db: AsyncSession = Depends(get_db), current
     await db.commit()
     return {"status": "deleted"}
 
+@router.get("/profiles")
+async def list_available_profiles(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Profile).order_by(Profile.username.asc()))
+    profiles = result.scalars().all()
+    return [{"id": p.id, "username": p.username, "creator_name": p.full_name or p.username} for p in profiles]
+
 @router.post("/{id}/channels")
 async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    clean_username = request.username.strip().lstrip("@")
+    
+    instagram_id = request.instagram_id
+    creator_name = request.creator_name
+    
+    profile_result = await db.execute(select(Profile).where(Profile.username.ilike(clean_username)))
+    profile = profile_result.scalars().first()
+    if profile:
+        if not instagram_id:
+            instagram_id = profile.id
+        if not creator_name:
+            creator_name = profile.full_name
+            
+    if not instagram_id:
+        instagram_id = clean_username
+        
     channel = MicroUnitChannel(
         micro_unit_id=id,
-        instagram_id=request.instagram_id,
-        username=request.username,
-        creator_name=request.creator_name
+        instagram_id=instagram_id,
+        username=clean_username,
+        creator_name=creator_name or clean_username
     )
     db.add(channel)
     await db.commit()

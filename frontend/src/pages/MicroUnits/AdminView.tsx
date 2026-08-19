@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Calculator, UserCheck } from "lucide-react";
-import { fetchMicroUnits } from "../../api/microUnits";
+import { clsx } from "clsx";
+import { fetchMicroUnits, type MicroUnit } from "../../api/microUnits";
 import { getMe, getToken, type User } from "../../api/auth";
 import { Link } from "react-router-dom";
 import CreateUnitModal from "./CreateUnitModal";
 import AssignPocModal from "./AssignPocModal";
 import CalculateMetricsModal from "./CalculateMetricsModal";
 import CreateUserModal from "./CreateUserModal";
+import ManageChannelsModal from "./ManageChannelsModal";
 
 export default function AdminView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -15,6 +17,7 @@ export default function AdminView() {
   const [showCalcModal, setShowCalcModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<number | undefined>();
+  const [channelModalUnit, setChannelModalUnit] = useState<MicroUnit | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const loadUser = async () => {
@@ -133,20 +136,32 @@ export default function AdminView() {
 
               <div className="grid grid-cols-3 gap-2 mt-auto pt-4 border-t border-gray-800">
                 <button 
-                  className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs transition-colors"
-                  onClick={() => alert('Edit unit functionality not implemented yet')}
+                  className={clsx(
+                    "px-2 py-1.5 rounded text-xs transition-colors font-medium truncate text-center",
+                    unit.channels.length === 0 
+                      ? "bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 border border-purple-800/40" 
+                      : "bg-gray-800 hover:bg-gray-700 text-gray-300"
+                  )}
+                  onClick={() => setChannelModalUnit(unit)}
+                  title={unit.channels.length === 0 ? "+ Add Channels" : "Edit Channels"}
                 >
-                  Edit
+                  {unit.channels.length === 0 ? "+ Add Channels" : "Edit Channels"}
                 </button>
                 <button 
-                  className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs transition-colors"
+                  className={clsx(
+                    "px-2 py-1.5 rounded text-xs transition-colors font-medium truncate text-center",
+                    pocDisplayName 
+                      ? "bg-gray-800 hover:bg-gray-700 text-purple-300" 
+                      : "bg-gray-800 hover:bg-gray-700 text-gray-300"
+                  )}
                   onClick={() => handleAssignPoc(unit.id)}
+                  title={pocDisplayName ? "Re-assign POC" : "Assign POC"}
                 >
-                  Assign POC
+                  {pocDisplayName ? "Re-assign POC" : "Assign POC"}
                 </button>
                 <Link 
                   to={`/micro-units/${unit.id}`}
-                  className="px-2 py-1.5 bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 rounded text-xs text-center transition-colors border border-purple-800/30"
+                  className="px-2 py-1.5 bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 rounded text-xs text-center transition-colors border border-purple-800/30 font-medium truncate"
                 >
                   Dashboard
                 </Link>
@@ -159,6 +174,12 @@ export default function AdminView() {
 
       {showCreateModal && <CreateUnitModal onClose={() => setShowCreateModal(false)} />}
       {showUserModal && <CreateUserModal onClose={() => setShowUserModal(false)} />}
+      {channelModalUnit && (
+        <ManageChannelsModal
+          unit={microUnits.find(u => u.id === channelModalUnit.id) || channelModalUnit}
+          onClose={() => setChannelModalUnit(null)}
+        />
+      )}
       {showAssignModal && (
         <AssignPocModal 
           onClose={() => {

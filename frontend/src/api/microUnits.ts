@@ -97,7 +97,7 @@ export async function deleteMicroUnit(id: number): Promise<void> {
   return handleResponse<void>(res);
 }
 
-export async function addChannel(unitId: number, body: { instagram_id: string; username: string; creator_name: string }): Promise<MicroUnitChannel> {
+export async function addChannel(unitId: number, body: { username: string; instagram_id?: string; creator_name?: string }): Promise<MicroUnitChannel> {
   const res = await fetch(`${API_URL}/api/micro-units/${unitId}/channels`, {
     method: "POST",
     headers: authHeaders(),
@@ -112,6 +112,13 @@ export async function removeChannel(unitId: number, channelId: number): Promise<
     headers: authHeaders(),
   });
   return handleResponse<void>(res);
+}
+
+export async function fetchAvailableProfiles(): Promise<{ id: string; username: string; creator_name: string }[]> {
+  const res = await fetch(`${API_URL}/api/micro-units/profiles`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<{ id: string; username: string; creator_name: string }[]>(res);
 }
 
 export async function calculateMonthlyMetrics(body: CalculateBody): Promise<any> {
