@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
             old_user = old_admin.scalars().first()
             if old_user:
                 old_user.email = "sadhguruwisdomwarriors@gmail.com"
+                old_user.password_hash = hash_password("admin123")
             else:
                 default_admin = User(
                     email="sadhguruwisdomwarriors@gmail.com",
@@ -44,6 +45,13 @@ async def lifespan(app: FastAPI):
                     role="ADMIN"
                 )
                 db.add(default_admin)
+
+        # Set known password for dhirenpatel1112@gmail.com
+        dhiren_res = await db.execute(select(User).where(User.email == "dhirenpatel1112@gmail.com"))
+        dhiren = dhiren_res.scalars().first()
+        if dhiren:
+            dhiren.password_hash = hash_password("dhiren123")
+
         await db.commit()
 
     resumed_runs = 0

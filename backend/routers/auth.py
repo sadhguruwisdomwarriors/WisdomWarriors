@@ -83,3 +83,17 @@ async def list_users(db: AsyncSession = Depends(get_db), current_user: User = De
             "role": u.role
         } for u in users
     ]
+
+class PasswordResetRequest(BaseModel):
+    email: str
+    new_password: str
+
+@router.post("/reset-password")
+async def reset_user_password(req: PasswordResetRequest, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(req.new_password)
+    await db.commit()
+    return {"status": "password_updated", "email": user.email}
