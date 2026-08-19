@@ -107,6 +107,36 @@ async def list_available_profiles(db: AsyncSession = Depends(get_db)):
     profiles = result.scalars().all()
     return [{"id": p.id, "username": p.username, "creator_name": p.full_name or p.username} for p in profiles]
 
+@router.get("/configured-runs")
+async def get_configured_runs(year: int = Query(...), db: AsyncSession = Depends(get_db)):
+    prefix = f"{year}-"
+    result = await db.execute(
+        select(
+            MonthlyChannelMetric.year_month,
+            MonthlyChannelMetric.snapshot1_run_id,
+            MonthlyChannelMetric.snapshot2_run_id
+        )
+        .where(MonthlyChannelMetric.year_month.startswith(prefix))
+        .group_by(
+            MonthlyChannelMetric.year_month,
+            MonthlyChannelMetric.snapshot1_run_id,
+            MonthlyChannelMetric.snapshot2_run_id
+        )
+    )
+    rows = result.all()
+    configured = {}
+    for row in rows:
+        ym, s1, s2 = row
+        try:
+            m = int(ym.split("-")[1])
+            configured[m] = {
+                "snapshot1_run_id": s1,
+                "snapshot2_run_id": s2
+            }
+        except Exception:
+            continue
+    return configured
+
 @router.post("/{id}/channels")
 async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     clean_username = request.username.strip().lstrip("@")

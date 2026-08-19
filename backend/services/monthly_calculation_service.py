@@ -35,10 +35,15 @@ async def calculate_monthly_metrics(db: AsyncSession, year: int, month: int, sna
     channels_processed = 0
     
     for channel in channels:
+        clean_name = channel.username.strip().lstrip("@").lower()
+
         # Get S1 posts
         s1_query = select(PostSnapshot).where(
             (PostSnapshot.run_id == snapshot1_run_id) & 
-            ((PostSnapshot.owner_username == channel.username) | (PostSnapshot.input_url.contains(channel.username)))
+            (
+                (func.lower(PostSnapshot.owner_username) == clean_name) | 
+                (PostSnapshot.input_url.ilike(f"%{clean_name}%"))
+            )
         )
         s1_result = await db.execute(s1_query)
         s1_posts = {p.post_id: p for p in s1_result.scalars().all()}
@@ -46,7 +51,10 @@ async def calculate_monthly_metrics(db: AsyncSession, year: int, month: int, sna
         # Get S2 posts
         s2_query = select(PostSnapshot).where(
             (PostSnapshot.run_id == snapshot2_run_id) & 
-            ((PostSnapshot.owner_username == channel.username) | (PostSnapshot.input_url.contains(channel.username)))
+            (
+                (func.lower(PostSnapshot.owner_username) == clean_name) | 
+                (PostSnapshot.input_url.ilike(f"%{clean_name}%"))
+            )
         )
         s2_result = await db.execute(s2_query)
         s2_posts = {p.post_id: p for p in s2_result.scalars().all()}
@@ -64,18 +72,23 @@ async def calculate_monthly_metrics(db: AsyncSession, year: int, month: int, sna
             coauthors = s2_p.coauthor_producers if s2_p.coauthor_producers else []
             participants = max(1, len(coauthors) + 1)
             
+            s2_views = max(s2_p.video_play_count or 0, s2_p.video_view_count or 0)
+            
             if prior_start <= pub_date <= prior_end:
                 s1_p = s1_posts.get(post_id)
                 if s1_p:
-                    s2_views = s2_p.video_play_count or 0
-                    s1_views = s1_p.video_play_count or 0
-                    delta = max(0, (s2_views / participants) - (s1_views / participants))
+                    s1_views = max(s1_p.video_play_count or 0, s1_p.video_view_count or 0)
+                    delta = max(0.0, (s2_views / participants) - (s1_views / participants))
                     total_delta += delta
             elif target_start <= pub_date <= target_end:
-                s2_views = s2_p.video_play_count or 0
-                delta = s2_views / participants
-                total_delta += delta
                 post_count += 1
+                s1_p = s1_posts.get(post_id)
+                if s1_p:
+                    s1_views = max(s1_p.video_play_count or 0, s1_p.video_view_count or 0)
+                    delta = max(0.0, (s2_views / participants) - (s1_views / participants))
+                else:
+                    delta = float(s2_views / participants)
+                total_delta += delta
                 
         views_per_post = total_delta / post_count if post_count > 0 else 0.0
         year_month_str = f"{year}-{month:02d}"

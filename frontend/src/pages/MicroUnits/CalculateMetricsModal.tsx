@@ -1,6 +1,6 @@
-import { useState, useMemo, type FormEvent } from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchScrapeRuns, calculateMonthlyMetrics, type MonthEntry } from "../../api/microUnits";
+import { fetchScrapeRuns, calculateMonthlyMetrics, fetchConfiguredRuns, type MonthEntry } from "../../api/microUnits";
 import { format } from "date-fns";
 
 interface CalculateMetricsModalProps {
@@ -22,10 +22,30 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
     queryFn: fetchScrapeRuns,
   });
 
+  const { data: configuredRuns } = useQuery({
+    queryKey: ["configuredRuns", year],
+    queryFn: () => fetchConfiguredRuns(year),
+  });
+
+  useEffect(() => {
+    if (configuredRuns) {
+      const initial: Record<number, { s1: string; s2: string }> = {};
+      Object.entries(configuredRuns).forEach(([monthStr, data]) => {
+        const m = parseInt(monthStr, 10);
+        initial[m - 1] = {
+          s1: String(data.snapshot1_run_id),
+          s2: String(data.snapshot2_run_id),
+        };
+      });
+      setMonthEntries(initial);
+    }
+  }, [configuredRuns]);
+
   const calcMutation = useMutation({
     mutationFn: calculateMonthlyMetrics,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+      queryClient.invalidateQueries({ queryKey: ["configuredRuns"] });
       alert("Metrics calculated successfully!");
       onClose();
     },

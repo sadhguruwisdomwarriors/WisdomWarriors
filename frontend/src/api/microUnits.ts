@@ -150,3 +150,10 @@ export async function fetchScrapeRuns(): Promise<ScrapeRunOption[]> {
   });
   return handleResponse<ScrapeRunOption[]>(res);
 }
+
+export async function fetchConfiguredRuns(year: number): Promise<Record<number, { snapshot1_run_id: number; snapshot2_run_id: number }>> {
+  const res = await fetch(`${API_URL}/api/micro-units/configured-runs?year=${year}`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<Record<number, { snapshot1_run_id: number; snapshot2_run_id: number }>>(res);
+}
