@@ -17,14 +17,15 @@ const MONTH_ABBR: Record<string, string> = {
   "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec"
 };
 
-export default function PocDashboardView() {
+export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: number } = {}) {
   const { id } = useParams<{ id: string }>();
+  const activeUnitId = unitIdOverride || (id ? parseInt(id, 10) : undefined);
   const [year, setYear] = useState<number>(new Date().getFullYear());
 
   const { data: dashboard, isLoading, error } = useQuery({
-    queryKey: ["microUnitDashboard", id, year],
-    queryFn: () => fetchDashboard(parseInt(id!, 10), year),
-    enabled: !!id,
+    queryKey: ["microUnitDashboard", activeUnitId, year],
+    queryFn: () => fetchDashboard(activeUnitId!, year),
+    enabled: !!activeUnitId,
   });
 
   if (isLoading) {

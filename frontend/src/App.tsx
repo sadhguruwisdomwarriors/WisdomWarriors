@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom"
-import { LayoutDashboard, Users, FileText, CalendarClock, MessageSquare, Search, ShieldCheck, ChevronDown, ChevronRight, GitCompare, Swords, Grid3X3 } from "lucide-react"
+import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from "react-router-dom"
+import { LayoutDashboard, Users, FileText, CalendarClock, MessageSquare, Search, ShieldCheck, ChevronDown, ChevronRight, GitCompare, Swords, Grid3X3, LogOut, User as UserIcon } from "lucide-react"
 import { clsx } from "clsx"
 import DashboardPage from "./pages/Dashboard"
 import ProfilesPage from "./pages/Profiles"
@@ -15,6 +15,8 @@ import CompareRunsPage from "./pages/CompareRuns"
 import WisdomWarriorsPage from "./pages/WisdomWarriors"
 import MicroUnitsPage from "./pages/MicroUnits"
 import PocDashboardView from "./pages/MicroUnits/PocDashboardView"
+import LoginPage from "./pages/Login"
+import { getMe, logout, getToken, type User } from "./api/auth"
 import { fetchWisdomWarriorsSnapshotRuns, type WisdomWarriorSnapshotRun } from "./api/wisdomWarriors"
 
 const formatLocalDate = (value: string): string => {
@@ -26,7 +28,14 @@ const formatLocalDate = (value: string): string => {
   return `${year}-${month}-${day}`
 }
 
-const NAV = [
+interface NavItem {
+  to: string;
+  icon: any;
+  label: string;
+  end?: boolean;
+}
+
+const ADMIN_MAIN_NAV: NavItem[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", end: true },
   { to: "/wisdom-warriors", icon: Swords, label: "Wisdom Warriors" },
   { to: "/micro-units", icon: Grid3X3, label: "Micro Units" },
@@ -35,7 +44,11 @@ const NAV = [
   { to: "/chat", icon: MessageSquare, label: "AI Chat" },
 ]
 
-const ADMIN_NAV = [
+const POC_MAIN_NAV: NavItem[] = [
+  { to: "/micro-units", icon: Grid3X3, label: "Micro Units" },
+]
+
+const ADMIN_SCRAPER_NAV = [
   { to: "/scrape-instagram", icon: Search, label: "Wisdom Warriors Scraper" },
   { to: "/scrape-instagram/hashtag-scraper", icon: Search, label: "Hashtag Scraper" },
   { to: "/scrape-instagram/mentions-scraper", icon: Search, label: "Mentions Scraper" },
@@ -45,148 +58,183 @@ const ADMIN_NAV = [
   { to: "/schedules", icon: CalendarClock, label: "Schedules" },
 ]
 
-function Sidebar() {
+function Sidebar({ currentUser, onLogout }: { currentUser: User; onLogout: () => void }) {
   const location = useLocation()
-  const adminActive = ADMIN_NAV.some(item => location.pathname.startsWith(item.to))
+  const isAdmin = currentUser.role === "ADMIN"
+  const adminActive = ADMIN_SCRAPER_NAV.some(item => location.pathname.startsWith(item.to))
   const [adminOpen, setAdminOpen] = useState(adminActive)
 
+  const navItems = isAdmin ? ADMIN_MAIN_NAV : POC_MAIN_NAV
+
   return (
-    <aside className="w-56 flex-shrink-0 border-r border-gray-800 flex flex-col py-6 px-3 gap-1">
-      <div className="px-3 mb-6 flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#ig-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <defs>
-            <linearGradient id="ig-grad" x1="2" y1="2" x2="22" y2="22">
-              <stop offset="0%" stopColor="#f59e0b" />
-              <stop offset="50%" stopColor="#ec4899" />
-              <stop offset="100%" stopColor="#8b5cf6" />
-            </linearGradient>
-          </defs>
-          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-          <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-        </svg>
-        <span className="text-lg font-bold text-white tracking-tight">Wisdom Warriors - Analytics</span>
-      </div>
-      {NAV.map(({ to, icon: Icon, label, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          className={({ isActive }) =>
-            clsx(
-              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-              isActive
-                ? "bg-purple-800 text-white"
-                : "text-gray-400 hover:text-white hover:bg-gray-800"
-            )
-          }
-        >
-          <Icon size={16} />
-          {label}
-        </NavLink>
-      ))}
+    <aside className="w-60 flex-shrink-0 border-r border-gray-800 flex flex-col justify-between py-6 px-3 bg-gray-950">
+      <div className="flex flex-col gap-1">
+        <div className="px-3 mb-6 flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-0.5 shadow-md shadow-purple-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-full h-full bg-gray-950 rounded-[6px] flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+              </svg>
+            </div>
+          </div>
+          <span className="text-sm font-bold text-white tracking-tight leading-tight">Wisdom Warriors<br /><span className="text-gray-400 font-normal text-xs">Analytics</span></span>
+        </div>
 
-      {/* Admin group */}
-      <div className="mt-1">
-        <button
-          onClick={() => setAdminOpen(o => !o)}
-          className={clsx(
-            "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-            adminActive
-              ? "text-white"
-              : "text-gray-400 hover:text-white hover:bg-gray-800"
-          )}
-        >
-          <ShieldCheck size={16} />
-          <span className="flex-1 text-left">Admin</span>
-          {adminOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </button>
-        {adminOpen && (
-          <div className="ml-4 mt-0.5 flex flex-col gap-0.5 border-l border-gray-800 pl-2">
-            <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500">Instagram Scraper</div>
-            {ADMIN_NAV.filter(item => item.to.startsWith("/scrape-instagram")).map(({ to, icon: Icon, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  clsx(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                    isActive
-                      ? "bg-purple-800 text-white"
-                      : "text-gray-400 hover:text-white hover:bg-gray-800"
-                  )
-                }
-              >
-                <Icon size={16} />
-                {label}
-              </NavLink>
-            ))}
+        {navItems.map(({ to, icon: Icon, label, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                isActive
+                  ? "bg-purple-800 text-white font-medium shadow-sm shadow-purple-900/50"
+                  : "text-gray-400 hover:text-white hover:bg-gray-900"
+              )
+            }
+          >
+            <Icon size={16} />
+            {label}
+          </NavLink>
+        ))}
 
-            <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500">YouTube Scraper</div>
-            {ADMIN_NAV.filter(item => item.to === "/scrape-youtube").map(({ to, icon: Icon, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  clsx(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                    isActive
-                      ? "bg-purple-800 text-white"
-                      : "text-gray-400 hover:text-white hover:bg-gray-800"
-                  )
-                }
-              >
-                <Icon size={16} />
-                {label}
-              </NavLink>
-            ))}
+        {/* Admin Scrapers group - only for ADMIN */}
+        {isAdmin && (
+          <div className="mt-2">
+            <button
+              onClick={() => setAdminOpen(o => !o)}
+              className={clsx(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                adminActive
+                  ? "text-white"
+                  : "text-gray-400 hover:text-white hover:bg-gray-900"
+              )}
+            >
+              <ShieldCheck size={16} />
+              <span className="flex-1 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Admin Tools</span>
+              {adminOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+            {adminOpen && (
+              <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-gray-800 pl-2">
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Instagram Scraper</div>
+                {ADMIN_SCRAPER_NAV.filter(item => item.to.startsWith("/scrape-instagram")).map(({ to, icon: Icon, label }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      clsx(
+                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs transition-colors",
+                        isActive
+                          ? "bg-purple-800 text-white font-medium"
+                          : "text-gray-400 hover:text-white hover:bg-gray-900"
+                      )
+                    }
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </NavLink>
+                ))}
 
-            <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500">Facebook Scraper</div>
-            {ADMIN_NAV.filter(item => item.to === "/scrape-facebook").map(({ to, icon: Icon, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  clsx(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                    isActive
-                      ? "bg-purple-800 text-white"
-                      : "text-gray-400 hover:text-white hover:bg-gray-800"
-                  )
-                }
-              >
-                <Icon size={16} />
-                {label}
-              </NavLink>
-            ))}
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold mt-1">YouTube Scraper</div>
+                {ADMIN_SCRAPER_NAV.filter(item => item.to === "/scrape-youtube").map(({ to, icon: Icon, label }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      clsx(
+                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs transition-colors",
+                        isActive
+                          ? "bg-purple-800 text-white font-medium"
+                          : "text-gray-400 hover:text-white hover:bg-gray-900"
+                      )
+                    }
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </NavLink>
+                ))}
 
-            <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500">Admin Tools</div>
-            {ADMIN_NAV.filter(item => !item.to.startsWith("/scrape-instagram") && item.to !== "/scrape-youtube" && item.to !== "/scrape-facebook").map(({ to, icon: Icon, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  clsx(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                    isActive
-                      ? "bg-purple-800 text-white"
-                      : "text-gray-400 hover:text-white hover:bg-gray-800"
-                  )
-                }
-              >
-                <Icon size={16} />
-                {label}
-              </NavLink>
-            ))}
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold mt-1">Facebook Scraper</div>
+                {ADMIN_SCRAPER_NAV.filter(item => item.to === "/scrape-facebook").map(({ to, icon: Icon, label }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      clsx(
+                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs transition-colors",
+                        isActive
+                          ? "bg-purple-800 text-white font-medium"
+                          : "text-gray-400 hover:text-white hover:bg-gray-900"
+                      )
+                    }
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </NavLink>
+                ))}
+
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 font-semibold mt-1">Schedules & Compare</div>
+                {ADMIN_SCRAPER_NAV.filter(item => !item.to.startsWith("/scrape-instagram") && item.to !== "/scrape-youtube" && item.to !== "/scrape-facebook").map(({ to, icon: Icon, label }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      clsx(
+                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs transition-colors",
+                        isActive
+                          ? "bg-purple-800 text-white font-medium"
+                          : "text-gray-400 hover:text-white hover:bg-gray-900"
+                      )
+                    }
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
           </div>
         )}
+      </div>
+
+      {/* User profile footer */}
+      <div className="pt-4 border-t border-gray-800 flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center flex-shrink-0 text-purple-400">
+            <UserIcon size={16} />
+          </div>
+          <div className="overflow-hidden">
+            <div className="text-xs font-semibold text-white truncate">{currentUser.full_name}</div>
+            <div className="flex items-center gap-1.5">
+              <span className={clsx(
+                "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border",
+                isAdmin 
+                  ? "bg-purple-950/80 text-purple-300 border-purple-800" 
+                  : "bg-emerald-950/80 text-emerald-300 border-emerald-800"
+              )}>
+                {currentUser.role}
+              </span>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onLogout}
+          title="Log Out"
+          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-900 rounded-lg transition-colors"
+        >
+          <LogOut size={16} />
+        </button>
       </div>
     </aside>
   )
 }
 
-function AppContent() {
+function AppContent({ currentUser, onLogout }: { currentUser: User; onLogout: () => void }) {
   const location = useLocation()
+  const isAdmin = currentUser.role === "ADMIN"
   const isMicroUnits = location.pathname.startsWith("/micro-units")
 
   const [selectedSnapshotRunId, setSelectedSnapshotRunId] = useState<number | undefined>(undefined)
@@ -198,6 +246,7 @@ function AppContent() {
     queryKey: ["global-snapshot-runs"],
     queryFn: () => fetchWisdomWarriorsSnapshotRuns(),
     refetchInterval: 30000,
+    enabled: isAdmin,
   })
 
   const filteredSnapshotRuns = useMemo(() => {
@@ -244,9 +293,26 @@ function AppContent() {
     ? new Date(selectedSnapshotRun.scraped_at).toLocaleString()
     : (hasInvalidDateRange ? "Invalid date range" : "No runs in selected range")
 
+  // If user is POC, enforce micro-units only
+  if (!isAdmin) {
+    return (
+      <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
+        <Sidebar currentUser={currentUser} onLogout={onLogout} />
+        <main className="flex-1 overflow-y-auto p-6">
+          <Routes>
+            <Route path="/micro-units" element={<MicroUnitsPage currentUser={currentUser} />} />
+            <Route path="/micro-units/:id" element={<PocDashboardView />} />
+            <Route path="*" element={<Navigate to="/micro-units" replace />} />
+          </Routes>
+        </main>
+      </div>
+    )
+  }
+
+  // If user is ADMIN, full access
   return (
     <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
-      <Sidebar />
+      <Sidebar currentUser={currentUser} onLogout={onLogout} />
       <main className="flex-1 overflow-y-auto pr-4 md:pr-6 lg:pr-8">
         {!isMicroUnits && (
           <div className="sticky top-0 z-10 border-b border-gray-800 bg-gray-950/95 backdrop-blur px-4 py-2 text-xs text-gray-300">
@@ -320,7 +386,7 @@ function AppContent() {
               path="/wisdom-warriors"
               element={<WisdomWarriorsPage selectedSnapshotRunId={selectedSnapshotRunId} selectedMonth={selectedMonth || undefined} />}
             />
-            <Route path="/micro-units" element={<MicroUnitsPage />} />
+            <Route path="/micro-units" element={<MicroUnitsPage currentUser={currentUser} />} />
             <Route path="/micro-units/:id" element={<PocDashboardView />} />
             <Route path="/scrape-instagram" element={<ScrapePage />} />
             <Route path="/scrape-instagram/hashtag-scraper" element={<ScrapePage />} />
@@ -342,9 +408,52 @@ function AppContent() {
 }
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+
+  const checkAuth = async () => {
+    const token = getToken()
+    if (token) {
+      try {
+        const user = await getMe()
+        setCurrentUser(user)
+      } catch {
+        logout()
+        setCurrentUser(null)
+      }
+    } else {
+      setCurrentUser(null)
+    }
+    setAuthChecked(true)
+  }
+
+  useEffect(() => {
+    checkAuth()
+  }, [])
+
+  const handleLogout = () => {
+    logout()
+    setCurrentUser(null)
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+          <span>Loading Wisdom Warriors...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />
+  }
+
   return (
     <BrowserRouter>
-      <AppContent />
+      <AppContent currentUser={currentUser} onLogout={handleLogout} />
     </BrowserRouter>
   )
 }

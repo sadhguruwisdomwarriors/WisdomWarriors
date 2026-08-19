@@ -129,11 +129,11 @@ export async function fetchDashboard(unitId: number, year: number): Promise<Dash
   return handleResponse<DashboardData>(res);
 }
 
-export async function fetchMyUnit(): Promise<{ unit_id: number }> {
+export async function fetchMyUnit(): Promise<{ id: number; name: string }> {
   const res = await fetch(`${API_URL}/api/micro-units/my-unit`, {
     headers: authHeaders(),
   });
-  return handleResponse<{ unit_id: number }>(res);
+  return handleResponse<{ id: number; name: string }>(res);
 }
 
 export async function fetchScrapeRuns(): Promise<ScrapeRunOption[]> {

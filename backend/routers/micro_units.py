@@ -19,7 +19,7 @@ class MicroUnitCreate(BaseModel):
     name: str
 
 class MicroUnitUpdate(BaseModel):
-    name: str
+    name: Optional[str] = None
     poc_user_id: Optional[int] = None
 
 class ChannelAdd(BaseModel):
@@ -77,8 +77,10 @@ async def update_micro_unit(id: int, request: MicroUnitUpdate, db: AsyncSession 
     if not unit:
         raise HTTPException(status_code=404, detail="Micro Unit not found")
     
-    unit.name = request.name
-    unit.poc_user_id = request.poc_user_id
+    if request.name is not None:
+        unit.name = request.name
+    if request.poc_user_id is not None:
+        unit.poc_user_id = request.poc_user_id
     await db.commit()
     return {"status": "updated"}
 
