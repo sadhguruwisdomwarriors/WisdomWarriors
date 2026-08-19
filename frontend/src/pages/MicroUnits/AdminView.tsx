@@ -1,17 +1,48 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, Calculator, UserPlus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Calculator, UserPlus, LogIn, LogOut, UserCheck } from "lucide-react";
 import { fetchMicroUnits } from "../../api/microUnits";
+import { getMe, logout, getToken, type User } from "../../api/auth";
 import { Link } from "react-router-dom";
 import CreateUnitModal from "./CreateUnitModal";
 import AssignPocModal from "./AssignPocModal";
 import CalculateMetricsModal from "./CalculateMetricsModal";
+import CreateUserModal from "./CreateUserModal";
+import LoginModal from "./LoginModal";
 
 export default function AdminView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showCalcModal, setShowCalcModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<number | undefined>();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  const queryClient = useQueryClient();
+
+  const loadUser = async () => {
+    if (getToken()) {
+      try {
+        const user = await getMe();
+        setCurrentUser(user);
+      } catch {
+        setCurrentUser(null);
+      }
+    } else {
+      setCurrentUser(null);
+    }
+  };
+
+  useEffect(() => {
+    loadUser();
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    setCurrentUser(null);
+    queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+  };
 
   const { data: microUnits = [], isLoading, error } = useQuery({
     queryKey: ["microUnits"],
@@ -25,28 +56,59 @@ export default function AdminView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-2xl font-bold text-white">Micro Units Overview</h1>
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Micro Units Overview</h1>
+          {currentUser && (
+            <p className="text-xs text-gray-400 mt-1">
+              Logged in as <span className="text-purple-300 font-semibold">{currentUser.full_name}</span> ({currentUser.email}) • <span className="bg-purple-900/50 text-purple-300 px-1.5 py-0.5 rounded text-[11px] border border-purple-800">{currentUser.role}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {currentUser ? (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors border border-gray-700 text-sm font-medium"
+            >
+              <LogOut size={15} />
+              Log Out
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 rounded-lg transition-colors border border-purple-800/40 text-sm font-medium"
+            >
+              <LogIn size={15} />
+              Log In
+            </button>
+          )}
+          <button
+            onClick={() => setShowUserModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-sm font-medium"
+          >
+            <UserCheck size={15} />
+            + Create User / POC
+          </button>
           <button
             onClick={() => handleAssignPoc()}
-            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-sm font-medium"
+            className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-sm font-medium"
           >
-            <UserPlus size={16} />
+            <UserPlus size={15} />
             Assign POC
           </button>
           <button
             onClick={() => setShowCalcModal(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-sm font-medium"
+            className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-sm font-medium"
           >
-            <Calculator size={16} />
+            <Calculator size={15} />
             Calculate Monthly Metrics
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded-lg transition-colors text-sm font-medium"
+            className="flex items-center gap-1.5 px-3 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded-lg transition-colors text-sm font-medium"
           >
-            <Plus size={16} />
+            <Plus size={15} />
             Create Micro Unit
           </button>
         </div>
@@ -127,6 +189,16 @@ export default function AdminView() {
       )}
 
       {showCreateModal && <CreateUnitModal onClose={() => setShowCreateModal(false)} />}
+      {showUserModal && <CreateUserModal onClose={() => setShowUserModal(false)} />}
+      {showLoginModal && (
+        <LoginModal 
+          onClose={() => setShowLoginModal(false)} 
+          onSuccess={(user) => {
+            setCurrentUser(user);
+            queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+          }} 
+        />
+      )}
       {showAssignModal && (
         <AssignPocModal 
           onClose={() => {

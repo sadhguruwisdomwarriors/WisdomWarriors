@@ -9,7 +9,7 @@ from backend.models.micro_unit import MicroUnit
 from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
 from backend.models.scrape_run import ScrapeRun
-from backend.services.auth_service import get_current_user, require_admin
+from backend.services.auth_service import get_current_user, require_admin, get_optional_user
 from backend.services.monthly_calculation_service import calculate_monthly_metrics
 
 router = APIRouter(prefix="/api/micro-units", tags=["micro-units"])
@@ -37,7 +37,7 @@ class CalculateRequest(BaseModel):
     months: List[MonthCalculation]
 
 @router.get("")
-async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
     result = await db.execute(select(MicroUnit))
     units = result.scalars().all()
     response = []
@@ -130,7 +130,7 @@ async def calculate_metrics(request: CalculateRequest, db: AsyncSession = Depend
     return {"status": "completed", "results": results}
 
 @router.get("/{id}/dashboard")
-async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
     unit_result = await db.execute(select(MicroUnit).where(MicroUnit.id == id))
     unit = unit_result.scalars().first()
     if not unit:
@@ -186,7 +186,7 @@ async def get_my_unit(db: AsyncSession = Depends(get_db), current_user: User = D
     return {"id": unit.id, "name": unit.name}
 
 @router.get("/scrape-runs")
-async def list_scrape_runs(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_scrape_runs(db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
     result = await db.execute(select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(50))
     runs = result.scalars().all()
     return [{"id": r.id, "started_at": r.started_at, "status": r.status} for r in runs]

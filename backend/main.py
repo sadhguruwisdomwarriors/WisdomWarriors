@@ -26,6 +26,19 @@ async def lifespan(app: FastAPI):
         usernames = []
     async with AsyncSessionLocal() as db:
         await ensure_scrape_profiles_seeded(db, usernames)
+        # Ensure default admin user
+        from sqlalchemy import select
+        from backend.models.user import User
+        from backend.services.auth_service import hash_password
+        admin_res = await db.execute(select(User).where(User.role == "ADMIN"))
+        if not admin_res.scalars().first():
+            default_admin = User(
+                email="admin@wisdomwarriors.com",
+                password_hash=hash_password("admin123"),
+                full_name="Admin",
+                role="ADMIN"
+            )
+            db.add(default_admin)
         await db.commit()
 
     resumed_runs = 0
