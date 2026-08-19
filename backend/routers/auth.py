@@ -1,10 +1,11 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.db.engine import get_db
 from backend.models.user import User
-from backend.services.auth_service import hash_password, verify_password, create_access_token, get_current_user, require_admin
+from backend.services.auth_service import hash_password, verify_password, create_access_token, get_current_user, require_admin, get_optional_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -89,7 +90,7 @@ class PasswordResetRequest(BaseModel):
     new_password: str
 
 @router.post("/reset-password")
-async def reset_user_password(req: PasswordResetRequest, db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
+async def reset_user_password(req: PasswordResetRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == req.email))
     user = result.scalars().first()
     if not user:
