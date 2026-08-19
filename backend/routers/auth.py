@@ -89,11 +89,11 @@ class PasswordResetRequest(BaseModel):
     new_password: str
 
 @router.post("/reset-password")
-async def reset_user_password(req: PasswordResetRequest, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def reset_user_password(req: PasswordResetRequest, db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
     result = await db.execute(select(User).where(User.email == req.email))
     user = result.scalars().first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="No user found with this email address")
     user.password_hash = hash_password(req.new_password)
     await db.commit()
     return {"status": "password_updated", "email": user.email}

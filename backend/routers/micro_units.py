@@ -46,10 +46,12 @@ async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Opt
         channels = channels_result.scalars().all()
         
         poc = None
+        poc_name = None
         if unit.poc_user_id:
             user_result = await db.execute(select(User).where(User.id == unit.poc_user_id))
             user = user_result.scalars().first()
             if user:
+                poc_name = user.full_name
                 poc = {"id": user.id, "full_name": user.full_name, "email": user.email}
         
         response.append({
@@ -57,6 +59,8 @@ async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Opt
             "unit_number": unit.unit_number,
             "name": unit.name,
             "status": unit.status,
+            "poc_user_id": unit.poc_user_id,
+            "poc_name": poc_name,
             "poc": poc,
             "channels": [{"id": c.id, "instagram_id": c.instagram_id, "username": c.username, "creator_name": c.creator_name} for c in channels]
         })

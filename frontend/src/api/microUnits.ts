@@ -24,6 +24,7 @@ export interface MicroUnit {
   name: string;
   poc_user_id: number | null;
   poc_name: string | null;
+  poc?: { id: number; full_name: string; email: string } | null;
   status: string;
   channels: MicroUnitChannel[];
 }

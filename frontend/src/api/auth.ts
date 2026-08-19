@@ -79,3 +79,12 @@ export async function getUsers(): Promise<User[]> {
   });
   return handleResponse<User[]>(res);
 }
+
+export async function resetPassword(email: string, new_password: string): Promise<{ status: string; email: string }> {
+  const res = await fetch(`${API_URL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, new_password })
+  });
+  return handleResponse<{ status: string; email: string }>(res);
+}

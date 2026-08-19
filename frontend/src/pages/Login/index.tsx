@@ -1,17 +1,21 @@
 import { useState, type FormEvent } from "react";
-import { login, type User } from "../../api/auth";
+import { login, resetPassword, type User } from "../../api/auth";
 
 interface LoginPageProps {
   onLoginSuccess: (user: User) => void;
 }
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
+  const [isResetMode, setIsResetMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleLoginSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
@@ -21,6 +25,32 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       onLoginSuccess(res.user);
     } catch (err: any) {
       setError(err.message || "Invalid email or password. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!email || !newPassword) return;
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match. Please try again.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      await resetPassword(email, newPassword);
+      setSuccessMsg("Password reset successfully! Please sign in with your new password.");
+      setIsResetMode(false);
+      setPassword(newPassword);
+    } catch (err: any) {
+      setError(err.message || "Failed to reset password. Please check your email.");
     } finally {
       setLoading(false);
     }
@@ -44,8 +74,17 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Wisdom Warriors</h1>
-          <p className="text-gray-400 text-sm mt-1">Sign in to access analytics & micro units</p>
+          <p className="text-gray-400 text-sm mt-1">
+            {isResetMode ? "Reset your account password" : "Sign in to access analytics & micro units"}
+          </p>
         </div>
+
+        {successMsg && (
+          <div className="p-3.5 bg-emerald-950/50 border border-emerald-800/80 text-emerald-300 text-sm rounded-xl mb-6 flex items-start gap-2">
+            <span className="text-emerald-400 font-bold">✓</span>
+            <span>{successMsg}</span>
+          </div>
+        )}
 
         {error && (
           <div className="p-3.5 bg-red-950/50 border border-red-800/80 text-red-300 text-sm rounded-xl mb-6 flex items-start gap-2">
@@ -54,51 +93,139 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
-              Email Address
-            </label>
-            <input
-              type="email"
-              placeholder="example@gmail.com"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoFocus
-              required
-            />
-          </div>
+        {!isResetMode ? (
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <div>
+              <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                Email Address
+              </label>
+              <input
+                type="email"
+                placeholder="example@gmail.com"
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+                required
+              />
+            </div>
 
-          <div>
-            <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
-              Password
-            </label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResetMode(true);
+                    setError(null);
+                    setSuccessMsg(null);
+                  }}
+                  className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <input
+                type="password"
+                placeholder="••••••••"
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-2 py-3 px-4 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white font-medium rounded-xl shadow-lg shadow-purple-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Signing in...</span>
-              </>
-            ) : (
-              <span>Sign In</span>
-            )}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 py-3 px-4 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white font-medium rounded-xl shadow-lg shadow-purple-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Signing in...</span>
+                </>
+              ) : (
+                <span>Sign In</span>
+              )}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleResetSubmit} className="space-y-4">
+            <div>
+              <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                Account Email
+              </label>
+              <input
+                type="email"
+                placeholder="example@gmail.com"
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                New Password
+              </label>
+              <input
+                type="password"
+                placeholder="Minimum 6 characters"
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                placeholder="Re-enter new password"
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 py-3 px-4 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white font-medium rounded-xl shadow-lg shadow-purple-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Updating password...</span>
+                </>
+              ) : (
+                <span>Reset Password</span>
+              )}
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResetMode(false);
+                  setError(null);
+                }}
+                className="text-xs text-gray-400 hover:text-white transition-colors"
+              >
+                ← Back to Sign In
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="mt-6 pt-6 border-t border-gray-800 text-center text-xs text-gray-500">
           Wisdom Warriors Analytics Portal
