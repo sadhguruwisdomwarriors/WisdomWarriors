@@ -61,7 +61,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             </label>
             <input
               type="email"
-              placeholder="admin@wisdomwarriors.com"
+              placeholder="example@gmail.com"
               className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

@@ -59,7 +59,7 @@ export default function LoginModal({ onClose, onSuccess }: LoginModalProps) {
             <label className="block text-gray-400 text-sm mb-1">Email Address</label>
             <input
               type="email"
-              placeholder="e.g. admin@wisdomwarriors.com"
+              placeholder="example@gmail.com"
               className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-sm"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

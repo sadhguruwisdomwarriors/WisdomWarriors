@@ -73,7 +73,7 @@ async def require_admin(user: Optional[User] = Depends(get_optional_user)) -> Us
     # If no users exist yet in the database, allow bootstrap actions
     if user is None:
         # Fallback for dev/first run if no auth token supplied
-        return User(id=1, email="admin@wisdomwarriors.com", full_name="Admin", role="ADMIN")
+        return User(id=1, email="sadhguruwisdomwarriors@gmail.com", full_name="Admin", role="ADMIN")
     if user.role != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

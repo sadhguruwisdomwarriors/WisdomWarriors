@@ -30,15 +30,20 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import select
         from backend.models.user import User
         from backend.services.auth_service import hash_password
-        admin_res = await db.execute(select(User).where(User.role == "ADMIN"))
+        admin_res = await db.execute(select(User).where(User.email == "sadhguruwisdomwarriors@gmail.com"))
         if not admin_res.scalars().first():
-            default_admin = User(
-                email="admin@wisdomwarriors.com",
-                password_hash=hash_password("admin123"),
-                full_name="Admin",
-                role="ADMIN"
-            )
-            db.add(default_admin)
+            old_admin = await db.execute(select(User).where(User.email == "admin@wisdomwarriors.com"))
+            old_user = old_admin.scalars().first()
+            if old_user:
+                old_user.email = "sadhguruwisdomwarriors@gmail.com"
+            else:
+                default_admin = User(
+                    email="sadhguruwisdomwarriors@gmail.com",
+                    password_hash=hash_password("admin123"),
+                    full_name="Admin",
+                    role="ADMIN"
+                )
+                db.add(default_admin)
         await db.commit()
 
     resumed_runs = 0
