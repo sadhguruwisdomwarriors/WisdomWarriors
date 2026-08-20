@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import List, Optional
 from backend.db.engine import get_db
 from backend.models.user import User
@@ -177,13 +177,23 @@ async def remove_channel(id: int, channel_id: int, db: AsyncSession = Depends(ge
 @router.post("/calculate")
 async def calculate_metrics(request: CalculateRequest, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     results = []
+    active_months = set()
+    
     for m in request.months:
         if m.snapshot1_run_id is None or m.snapshot2_run_id is None:
             raise HTTPException(status_code=400, detail=f"Both snapshot1_run_id and snapshot2_run_id required for month {m.month}")
         
+        active_months.add(m.month)
         res = await calculate_monthly_metrics(db, request.year, m.month, m.snapshot1_run_id, m.snapshot2_run_id)
         results.append({"month": m.month, "result": res})
         
+    # Automatically clear/delete data for any month of this year that has no Run IDs
+    for month_num in range(1, 13):
+        if month_num not in active_months:
+            ym_str = f"{request.year}-{month_num:02d}"
+            await db.execute(delete(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month == ym_str))
+            
+    await db.commit()
     return {"status": "completed", "results": results}
 
 @router.get("/{id}/dashboard")

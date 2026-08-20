@@ -113,6 +113,19 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
 
   const hasErrors = Object.keys(validationErrors).length > 0;
 
+  const handleClearAll = () => {
+    if (confirm(`Are you sure you want to clear all Run IDs and reset all metrics for ${year}?`)) {
+      setMonthEntries({});
+      try {
+        localStorage.removeItem(`wisdom_warriors_metrics_runs_${year}`);
+      } catch {}
+      calcMutation.mutate({
+        year,
+        months: [],
+      });
+    }
+  };
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (hasErrors) return;
@@ -129,7 +142,12 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
     });
 
     if (validMonths.length === 0) {
-      alert("Please select at least one month's snapshots.");
+      if (confirm(`No Run IDs are selected. Do you want to clear/reset all monthly metrics for ${year}?`)) {
+        calcMutation.mutate({
+          year,
+          months: [],
+        });
+      }
       return;
     }
 
@@ -145,12 +163,26 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto py-10">
       <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-3xl my-auto">
-        <h2 className="text-xl font-bold text-white mb-4">Calculate Monthly Metrics - {year}</h2>
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">Calculate Monthly Metrics - {year}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Select Snapshot 1 and Snapshot 2 for active months. Empty months will be cleared.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClearAll}
+            className="text-xs text-red-400 hover:text-red-300 hover:bg-red-950/40 px-2.5 py-1.5 rounded-lg border border-red-800/40 transition-colors"
+          >
+            Clear All Months
+          </button>
+        </div>
         
         <div className="mb-6">
-          <label className="block text-gray-400 mb-2">Year</label>
+          <label className="block text-gray-400 mb-2 text-sm font-medium">Year</label>
           <select
-            className="bg-gray-800 border border-gray-700 rounded p-2 text-white w-32"
+            className="bg-gray-800 border border-gray-700 rounded p-2 text-white w-32 text-sm"
             value={year}
             onChange={(e) => setYear(parseInt(e.target.value, 10))}
           >
