@@ -37,14 +37,8 @@ async def calculate_monthly_metrics(db: AsyncSession, year: int, month: int, sna
     for channel in channels:
         clean_name = channel.username.strip().lstrip("@").lower()
 
-        # Get S1 posts (lightweight column selection to minimize egress)
-        s1_query = select(
-            PostSnapshot.post_id,
-            PostSnapshot.timestamp,
-            PostSnapshot.video_play_count,
-            PostSnapshot.video_view_count,
-            PostSnapshot.coauthor_producers
-        ).where(
+        # Get S1 posts
+        s1_query = select(PostSnapshot).where(
             (PostSnapshot.run_id == snapshot1_run_id) & 
             (
                 (func.lower(PostSnapshot.owner_username) == clean_name) | 
@@ -52,16 +46,10 @@ async def calculate_monthly_metrics(db: AsyncSession, year: int, month: int, sna
             )
         )
         s1_result = await db.execute(s1_query)
-        s1_posts = {row.post_id: row for row in s1_result.all()}
+        s1_posts = {p.post_id: p for p in s1_result.scalars().all()}
         
-        # Get S2 posts (lightweight column selection)
-        s2_query = select(
-            PostSnapshot.post_id,
-            PostSnapshot.timestamp,
-            PostSnapshot.video_play_count,
-            PostSnapshot.video_view_count,
-            PostSnapshot.coauthor_producers
-        ).where(
+        # Get S2 posts
+        s2_query = select(PostSnapshot).where(
             (PostSnapshot.run_id == snapshot2_run_id) & 
             (
                 (func.lower(PostSnapshot.owner_username) == clean_name) | 
@@ -69,7 +57,7 @@ async def calculate_monthly_metrics(db: AsyncSession, year: int, month: int, sna
             )
         )
         s2_result = await db.execute(s2_query)
-        s2_posts = {row.post_id: row for row in s2_result.all()}
+        s2_posts = {p.post_id: p for p in s2_result.scalars().all()}
         
         total_delta = 0.0
         post_count = 0
