@@ -13,8 +13,19 @@ const MONTHS = [
 ];
 
 export default function CalculateMetricsModal({ onClose }: CalculateMetricsModalProps) {
+  const loadLocalRuns = (targetYear: number): Record<number, { s1: string; s2: string }> => {
+    try {
+      const saved = localStorage.getItem(`wisdom_warriors_metrics_runs_${targetYear}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  };
+
   const [year, setYear] = useState<number>(new Date().getFullYear());
-  const [monthEntries, setMonthEntries] = useState<Record<number, { s1: string; s2: string }>>({});
+  const [monthEntries, setMonthEntries] = useState<Record<number, { s1: string; s2: string }>>(() =>
+    loadLocalRuns(new Date().getFullYear())
+  );
   const queryClient = useQueryClient();
 
   const { data: scrapeRuns = [], isLoading: loadingRuns } = useQuery({
@@ -27,23 +38,41 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
     queryFn: () => fetchConfiguredRuns(year),
   });
 
+  // When year changes, load local runs for that year
   useEffect(() => {
-    if (configuredRuns) {
-      const initial: Record<number, { s1: string; s2: string }> = {};
+    const local = loadLocalRuns(year);
+    setMonthEntries(local);
+  }, [year]);
+
+  // When API configuredRuns arrives, merge and save
+  useEffect(() => {
+    if (configuredRuns && Object.keys(configuredRuns).length > 0) {
+      const apiEntries: Record<number, { s1: string; s2: string }> = {};
       Object.entries(configuredRuns).forEach(([monthStr, data]) => {
         const m = parseInt(monthStr, 10);
-        initial[m - 1] = {
-          s1: String(data.snapshot1_run_id),
-          s2: String(data.snapshot2_run_id),
-        };
+        if (data.snapshot1_run_id && data.snapshot2_run_id) {
+          apiEntries[m - 1] = {
+            s1: String(data.snapshot1_run_id),
+            s2: String(data.snapshot2_run_id),
+          };
+        }
       });
-      setMonthEntries(initial);
+      setMonthEntries((prev) => {
+        const merged = { ...apiEntries, ...prev };
+        try {
+          localStorage.setItem(`wisdom_warriors_metrics_runs_${year}`, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
     }
-  }, [configuredRuns]);
+  }, [configuredRuns, year]);
 
   const calcMutation = useMutation({
     mutationFn: calculateMonthlyMetrics,
     onSuccess: () => {
+      try {
+        localStorage.setItem(`wisdom_warriors_metrics_runs_${year}`, JSON.stringify(monthEntries));
+      } catch {}
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
       queryClient.invalidateQueries({ queryKey: ["configuredRuns"] });
       alert("Metrics calculated successfully!");
@@ -55,13 +84,19 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
   });
 
   const handleEntryChange = (monthIdx: number, field: "s1" | "s2", value: string) => {
-    setMonthEntries((prev) => ({
-      ...prev,
-      [monthIdx]: {
-        ...(prev[monthIdx] || { s1: "", s2: "" }),
-        [field]: value,
-      },
-    }));
+    setMonthEntries((prev) => {
+      const updated = {
+        ...prev,
+        [monthIdx]: {
+          ...(prev[monthIdx] || { s1: "", s2: "" }),
+          [field]: value,
+        },
+      };
+      try {
+        localStorage.setItem(`wisdom_warriors_metrics_runs_${year}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const validationErrors = useMemo(() => {

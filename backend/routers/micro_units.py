@@ -117,11 +117,7 @@ async def get_configured_runs(year: int = Query(...), db: AsyncSession = Depends
             MonthlyChannelMetric.snapshot2_run_id
         )
         .where(MonthlyChannelMetric.year_month.startswith(prefix))
-        .group_by(
-            MonthlyChannelMetric.year_month,
-            MonthlyChannelMetric.snapshot1_run_id,
-            MonthlyChannelMetric.snapshot2_run_id
-        )
+        .order_by(MonthlyChannelMetric.calculated_at.desc())
     )
     rows = result.all()
     configured = {}
@@ -129,50 +125,14 @@ async def get_configured_runs(year: int = Query(...), db: AsyncSession = Depends
         ym, s1, s2 = row
         try:
             m = int(ym.split("-")[1])
-            configured[m] = {
-                "snapshot1_run_id": s1,
-                "snapshot2_run_id": s2
-            }
+            if m not in configured and s1 is not None and s2 is not None:
+                configured[m] = {
+                    "snapshot1_run_id": s1,
+                    "snapshot2_run_id": s2
+                }
         except Exception:
             continue
-@router.get("/inspect-run-97")
-async def inspect_run_97(db: AsyncSession = Depends(get_db)):
-    channels = ['bhoomija.yogini', '_rudreshi_', '_when.the.guru.invades_']
-    results = {}
-    for ch in channels:
-        clean_name = ch.strip().lstrip("@").lower()
-        res = await db.execute(
-            select(PostSnapshot)
-            .where(
-                (PostSnapshot.run_id == 97) &
-                (
-                    (func.lower(PostSnapshot.owner_username) == clean_name) |
-                    (PostSnapshot.input_url.ilike(f"%{clean_name}%"))
-                )
-            )
-            .order_by(PostSnapshot.timestamp.asc())
-        )
-        posts = res.scalars().all()
-        by_month = {}
-        for p in posts:
-            m = p.timestamp.strftime("%Y-%m") if p.timestamp else "Unknown"
-            views = max(p.video_play_count or 0, p.video_view_count or 0)
-            if m not in by_month:
-                by_month[m] = {"post_count": 0, "total_views": 0, "sample_posts": []}
-            by_month[m]["post_count"] += 1
-            by_month[m]["total_views"] += views
-            if len(by_month[m]["sample_posts"]) < 5:
-                by_month[m]["sample_posts"].append({
-                    "date": p.timestamp.strftime("%Y-%m-%d") if p.timestamp else "N/A",
-                    "views": views,
-                    "likes": p.likes_count,
-                    "url": p.url
-                })
-        results[ch] = {
-            "total_posts_in_run_97": len(posts),
-            "by_month": by_month
-        }
-    return results
+    return configured
 
 @router.post("/{id}/channels")
 async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
