@@ -157,3 +157,14 @@ export async function fetchConfiguredRuns(year: number): Promise<Record<number, 
   });
   return handleResponse<Record<number, { snapshot1_run_id: number; snapshot2_run_id: number }>>(res);
 }
+
+export async function clearCalculations(year: number, month?: number): Promise<void> {
+  const url = month 
+    ? `${API_URL}/api/micro-units/calculations?year=${year}&month=${month}`
+    : `${API_URL}/api/micro-units/calculations?year=${year}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handleResponse<void>(res);
+}

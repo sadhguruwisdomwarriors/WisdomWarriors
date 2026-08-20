@@ -174,24 +174,36 @@ async def remove_channel(id: int, channel_id: int, db: AsyncSession = Depends(ge
     await db.commit()
     return {"status": "deleted"}
 
+@router.delete("/calculations")
+async def clear_calculations(year: int = Query(...), month: Optional[int] = Query(None), db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    if month:
+        year_month_str = f"{year}-{month:02d}"
+        await db.execute(delete(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month == year_month_str))
+    else:
+        prefix = f"{year}-"
+        await db.execute(delete(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month.startswith(prefix)))
+    await db.commit()
+    return {"status": "cleared"}
+
 @router.post("/calculate")
 async def calculate_metrics(request: CalculateRequest, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    submitted_months = set()
     results = []
-    active_months = set()
-    
     for m in request.months:
-        if m.snapshot1_run_id is None or m.snapshot2_run_id is None:
+        if m.snapshot1_run_id is not None and m.snapshot2_run_id is not None:
+            submitted_months.add(m.month)
+            res = await calculate_monthly_metrics(db, request.year, m.month, m.snapshot1_run_id, m.snapshot2_run_id)
+            results.append({"month": m.month, "result": res})
+        elif (m.snapshot1_run_id is not None and m.snapshot2_run_id is None) or (m.snapshot1_run_id is None and m.snapshot2_run_id is not None):
             raise HTTPException(status_code=400, detail=f"Both snapshot1_run_id and snapshot2_run_id required for month {m.month}")
         
-        active_months.add(m.month)
-        res = await calculate_monthly_metrics(db, request.year, m.month, m.snapshot1_run_id, m.snapshot2_run_id)
-        results.append({"month": m.month, "result": res})
-        
-    # Automatically clear/delete data for any month of this year that has no Run IDs
-    for month_num in range(1, 13):
-        if month_num not in active_months:
-            ym_str = f"{request.year}-{month_num:02d}"
-            await db.execute(delete(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month == ym_str))
+    # Delete records for any months of this year that are NOT in submitted_months
+    for month_idx in range(1, 13):
+        if month_idx not in submitted_months:
+            year_month_str = f"{request.year}-{month_idx:02d}"
+            await db.execute(
+                delete(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month == year_month_str)
+            )
             
     await db.commit()
     return {"status": "completed", "results": results}

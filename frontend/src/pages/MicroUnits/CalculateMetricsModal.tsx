@@ -44,9 +44,9 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
     setMonthEntries(local);
   }, [year]);
 
-  // When API configuredRuns arrives, merge and save
+  // When API configuredRuns arrives, sync directly
   useEffect(() => {
-    if (configuredRuns && Object.keys(configuredRuns).length > 0) {
+    if (configuredRuns) {
       const apiEntries: Record<number, { s1: string; s2: string }> = {};
       Object.entries(configuredRuns).forEach(([monthStr, data]) => {
         const m = parseInt(monthStr, 10);
@@ -57,13 +57,10 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
           };
         }
       });
-      setMonthEntries((prev) => {
-        const merged = { ...apiEntries, ...prev };
-        try {
-          localStorage.setItem(`wisdom_warriors_metrics_runs_${year}`, JSON.stringify(merged));
-        } catch {}
-        return merged;
-      });
+      setMonthEntries(apiEntries);
+      try {
+        localStorage.setItem(`wisdom_warriors_metrics_runs_${year}`, JSON.stringify(apiEntries));
+      } catch {}
     }
   }, [configuredRuns, year]);
 
@@ -75,7 +72,8 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
       } catch {}
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
       queryClient.invalidateQueries({ queryKey: ["configuredRuns"] });
-      alert("Metrics calculated successfully!");
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      alert("Metrics calculated and synchronized successfully!");
       onClose();
     },
     onError: (err: any) => {
@@ -85,18 +83,32 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
 
   const handleEntryChange = (monthIdx: number, field: "s1" | "s2", value: string) => {
     setMonthEntries((prev) => {
-      const updated = {
-        ...prev,
-        [monthIdx]: {
-          ...(prev[monthIdx] || { s1: "", s2: "" }),
-          [field]: value,
-        },
-      };
+      const current = prev[monthIdx] || { s1: "", s2: "" };
+      const updatedMonth = { ...current, [field]: value };
+      const updated = { ...prev };
+      if (!updatedMonth.s1 && !updatedMonth.s2) {
+        delete updated[monthIdx];
+      } else {
+        updated[monthIdx] = updatedMonth;
+      }
       try {
         localStorage.setItem(`wisdom_warriors_metrics_runs_${year}`, JSON.stringify(updated));
       } catch {}
       return updated;
     });
+  };
+
+  const handleClearAll = () => {
+    if (window.confirm(`Are you sure you want to clear all calculated metrics and run configurations for ${year}?`)) {
+      setMonthEntries({});
+      try {
+        localStorage.removeItem(`wisdom_warriors_metrics_runs_${year}`);
+      } catch {}
+      calcMutation.mutate({
+        year,
+        months: [],
+      });
+    }
   };
 
   const validationErrors = useMemo(() => {
@@ -128,11 +140,6 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
       }
     });
 
-    if (validMonths.length === 0) {
-      alert("Please select at least one month's snapshots.");
-      return;
-    }
-
     calcMutation.mutate({
       year,
       months: validMonths,
@@ -145,12 +152,22 @@ export default function CalculateMetricsModal({ onClose }: CalculateMetricsModal
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto py-10">
       <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-3xl my-auto">
-        <h2 className="text-xl font-bold text-white mb-4">Calculate Monthly Metrics - {year}</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold text-white">Calculate Monthly Metrics - {year}</h2>
+          <button
+            type="button"
+            onClick={handleClearAll}
+            disabled={calcMutation.isPending}
+            className="text-xs text-red-400 hover:text-red-300 hover:bg-red-950/40 px-3 py-1.5 rounded-lg border border-red-900/60 transition-colors"
+          >
+            Clear All Months for {year}
+          </button>
+        </div>
         
-        <div className="mb-6">
-          <label className="block text-gray-400 mb-2 text-sm font-medium">Year</label>
+        <div className="mb-6 flex items-center gap-3">
+          <label className="block text-gray-400 text-sm">Year:</label>
           <select
-            className="bg-gray-800 border border-gray-700 rounded p-2 text-white w-32 text-sm"
+            className="bg-gray-800 border border-gray-700 rounded p-2 text-white w-32 text-sm focus:outline-none focus:border-purple-500"
             value={year}
             onChange={(e) => setYear(parseInt(e.target.value, 10))}
           >
