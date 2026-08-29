@@ -1,8 +1,12 @@
+import asyncio
 import csv
 import io
+import json
 import logging
 import re
+import ssl
 import urllib.request
+import urllib.error
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
@@ -37,6 +41,10 @@ SENTENCE_SKIP_PHRASES = [
     "don't have", "dont have", "not decided", "no channel", "no link",
     "not sure", "not applicable", "n/a", "none", "nil", "na", "-", "--"
 ]
+
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 
 def is_empty_or_placeholder(text_content: str) -> bool:
@@ -105,16 +113,67 @@ def fetch_tab_csv_sync(gid: str) -> str:
         return response.read().decode("utf-8", errors="replace")
 
 
+def check_instagram_handle_live_sync(handle: str) -> str:
+    """
+    Synchronously verifies whether an Instagram account is accessible, deleted/404, or invalid.
+    Returns: "VALID" | "DELETED" | "INVALID"
+    """
+    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "x-ig-app-id": "936619743392459",
+        "Accept": "*/*",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            user = data.get("data", {}).get("user")
+            if user:
+                return "VALID"
+            else:
+                return "DELETED"
+    except urllib.error.HTTPError as e:
+        if e.code == 404 or e.code == 410:
+            return "DELETED"
+        # 429 rate limit or 302 redirect means endpoint/account exists
+        return "VALID"
+    except urllib.error.URLError:
+        return "INVALID"
+    except Exception:
+        return "VALID"
+
+
+async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, str]:
+    """
+    Checks multiple handles concurrently using run_in_executor.
+    """
+    loop = asyncio.get_running_loop()
+    semaphore = asyncio.Semaphore(15)
+
+    async def check_one(h: str):
+        async with semaphore:
+            return h, await loop.run_in_executor(None, check_instagram_handle_live_sync, h)
+
+    tasks = [check_one(h) for h in handles]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    status_map = {}
+    for res in results:
+        if isinstance(res, tuple):
+            h, st = res
+            status_map[h] = st
+        elif isinstance(res, Exception):
+            pass
+    return status_map
+
+
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
-    Fetches Grade A-E tabs, skips rows where no channel link is present,
-    parses single & multi-link cells, compares against database,
-    and classifies entries into:
-    - NEW_CHANNEL (Green, Checkbox enabled)
-    - HANDLE_CHANGED (Amber, Auto-updated)
-    - LINK_INVALID (Red, Broken link format)
-    - CHANNEL_DELETED (Red, Deleted / non-existent channel)
-    - ALREADY_TRACKED (Gray, Up-to-date)
+    Fetches Grade A-E tabs:
+    1. Skips rows where no channel link is present in the sheet.
+    2. Step 1: Checks Database first (Profile ID / Username) -> Already Tracked / Handle Changed.
+    3. Step 2: Checks live reachability -> Link Invalid (broken link) vs Channel Deleted (404/deleted) vs New Channel.
     """
     import asyncio
     
@@ -125,7 +184,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
         p.username.lower(): p for p in all_scrape_profiles if p.username
     }
 
-    items: List[Dict[str, Any]] = []
+    raw_items: List[Dict[str, Any]] = []
     summary = {
         "total_rows_scanned": 0,
         "new_channels": 0,
@@ -136,6 +195,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     }
 
     seen_channel_keys = set()
+    candidate_handles_to_check = set()
     loop = asyncio.get_running_loop()
 
     for tab in GRADE_TABS:
@@ -191,7 +251,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
             other_cell = row[col_other].strip() if len(row) > col_other else ""
             yt_link_cell = row[col_yt_link].strip() if len(row) > col_yt_link else ""
 
-            # Check if any link or name text was provided
+            # Check if any link or handle text was provided
             raw_channel_inputs = [c for c in [ig_link_cell, ig_name_cell, other_cell] if c.strip()]
             if "instagram.com" in yt_link_cell:
                 raw_channel_inputs.append(yt_link_cell.strip())
@@ -203,10 +263,10 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
             combined_ig_text = "\n".join(raw_channel_inputs)
             extracted_handles = extract_instagram_handles(combined_ig_text)
 
-            # REQUIREMENT 2: If a link was entered but no valid Instagram handle could be extracted -> Link Invalid
+            # REQUIREMENT 2: If a link was entered in sheet but fails to open or is broken -> Link Invalid
             if not extracted_handles:
                 raw_display = ig_link_cell or ig_name_cell or other_cell
-                items.append({
+                raw_items.append({
                     "channel_id": member_id,
                     "creator_name": creator_name,
                     "username": "",
@@ -232,8 +292,9 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
                 instagram_url = f"https://www.instagram.com/{handle}/"
 
+                # STEP 1: Database Check
                 if handle in existing_handles_map:
-                    items.append({
+                    raw_items.append({
                         "channel_id": member_id,
                         "creator_name": creator_name,
                         "username": handle,
@@ -249,8 +310,9 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                     })
                     summary["already_tracked"] += 1
                 else:
-                    # New Channel ready for addition
-                    items.append({
+                    # Candidate new channel -> queue for live reachability check
+                    candidate_handles_to_check.add(handle)
+                    raw_items.append({
                         "channel_id": member_id,
                         "creator_name": creator_name,
                         "username": handle,
@@ -259,16 +321,46 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         "grade": tab["grade"],
                         "category": "Dedicated",
                         "tab_name": tab["name"],
-                        "case_type": "NEW_CHANNEL",
-                        "status_label": "New Channel",
+                        "case_type": "PENDING_CHECK",
+                        "status_label": "Checking...",
                         "status_color": "green",
                         "can_add": True,
                     })
-                    summary["new_channels"] += 1
+
+    # STEP 2: Verify candidate new channels live for deleted / invalid / valid
+    if candidate_handles_to_check:
+        live_status_map = await check_handles_live_concurrent(list(candidate_handles_to_check))
+    else:
+        live_status_map = {}
+
+    final_items: List[Dict[str, Any]] = []
+    for item in raw_items:
+        if item["case_type"] == "PENDING_CHECK":
+            h = item["username"]
+            st = live_status_map.get(h, "VALID")
+            if st == "DELETED":
+                item["case_type"] = "CHANNEL_DELETED"
+                item["status_label"] = "Channel Deleted / Not Found"
+                item["status_color"] = "red"
+                item["can_add"] = False
+                summary["channel_deleted"] += 1
+            elif st == "INVALID":
+                item["case_type"] = "LINK_INVALID"
+                item["status_label"] = "Link Invalid"
+                item["status_color"] = "red"
+                item["can_add"] = False
+                summary["link_invalid"] += 1
+            else:
+                item["case_type"] = "NEW_CHANNEL"
+                item["status_label"] = "New Channel"
+                item["status_color"] = "green"
+                item["can_add"] = True
+                summary["new_channels"] += 1
+        final_items.append(item)
 
     return {
         "summary": summary,
-        "items": items,
+        "items": final_items,
     }
 
 
