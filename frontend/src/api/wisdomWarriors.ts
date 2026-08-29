@@ -96,7 +96,7 @@ export interface GoogleSheetsSyncItem {
   grade: string
   category: string
   tab_name: string
-  case_type: "NEW_CHANNEL" | "HANDLE_CHANGED" | "CHANNEL_NOT_FOUND" | "ALREADY_TRACKED"
+  case_type: "NEW_CHANNEL" | "HANDLE_CHANGED" | "LINK_INVALID" | "CHANNEL_DELETED" | "ALREADY_TRACKED"
   status_label: string
   status_color: "green" | "yellow" | "red" | "gray"
   can_add: boolean
@@ -107,7 +107,8 @@ export interface GoogleSheetsSyncResponse {
     total_rows_scanned: number
     new_channels: number
     handle_changed: number
-    not_found: number
+    link_invalid: number
+    channel_deleted: number
     already_tracked: number
   }
   items: GoogleSheetsSyncItem[]

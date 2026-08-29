@@ -28,29 +28,38 @@ INVALID_TERMS = {
     "na", "n/a", "nil", "none", "not created", "not yet", "not yet made",
     "work in progress", "don't have any", "dont have any", "no", "-", "--",
     "not decided yet", "reels", "p", "explore", "stories", "share", "tags",
-    "about", "help", "instagram", "https", "http", "www", "null", "undefined"
+    "about", "help", "instagram", "https", "http", "www", "null", "undefined",
+    "reel", "tv", "profile", "user", "post", "posts"
 }
-
 
 SENTENCE_SKIP_PHRASES = [
     "work in progress", "will share", "not created", "not yet",
     "don't have", "dont have", "not decided", "no channel", "no link",
-    "not sure", "not applicable", "n/a"
+    "not sure", "not applicable", "n/a", "none", "nil", "na", "-", "--"
 ]
+
+
+def is_empty_or_placeholder(text_content: str) -> bool:
+    """
+    Checks if a cell is empty or contains placeholder / skip phrases.
+    """
+    if not text_content:
+        return True
+    cleaned = text_content.strip().lower()
+    if not cleaned:
+        return True
+    return any(cleaned == phrase or cleaned.startswith(phrase) for phrase in SENTENCE_SKIP_PHRASES)
+
 
 def extract_instagram_handles(text_content: str) -> List[str]:
     """
     Extracts all valid Instagram handles from a string that may contain multiple links,
     handles, or freeform text across multiple lines or comma-separated values.
     """
-    if not text_content:
+    if not text_content or is_empty_or_placeholder(text_content):
         return []
 
-    text_lower = text_content.lower().strip()
-    if any(phrase in text_lower for phrase in SENTENCE_SKIP_PHRASES):
-        return []
-
-    text_content = text_content.replace("\\n", "\n").replace("\\r", "\r")
+    text_content = text_content.replace("\\n", "\n").replace("\\r", "")
     handles = []
 
     # 1. Direct Regex for all Instagram URLs anywhere in the string
@@ -98,8 +107,14 @@ def fetch_tab_csv_sync(gid: str) -> str:
 
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
-    Fetches Grade A-E tabs, parses single & multi-link cells, compares against database,
-    and classifies every entry into Case 1 (Not Found), Case 2 (Handle Changed), or Case 3 (New Channel).
+    Fetches Grade A-E tabs, skips rows where no channel link is present,
+    parses single & multi-link cells, compares against database,
+    and classifies entries into:
+    - NEW_CHANNEL (Green, Checkbox enabled)
+    - HANDLE_CHANGED (Amber, Auto-updated)
+    - LINK_INVALID (Red, Broken link format)
+    - CHANNEL_DELETED (Red, Deleted / non-existent channel)
+    - ALREADY_TRACKED (Gray, Up-to-date)
     """
     import asyncio
     
@@ -115,7 +130,8 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
         "total_rows_scanned": 0,
         "new_channels": 0,
         "handle_changed": 0,
-        "not_found": 0,
+        "link_invalid": 0,
+        "channel_deleted": 0,
         "already_tracked": 0,
     }
 
@@ -175,15 +191,21 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
             other_cell = row[col_other].strip() if len(row) > col_other else ""
             yt_link_cell = row[col_yt_link].strip() if len(row) > col_yt_link else ""
 
-            combined_ig_text = f"{ig_link_cell}\n{ig_name_cell}\n{other_cell}"
+            # Check if any link or name text was provided
+            raw_channel_inputs = [c for c in [ig_link_cell, ig_name_cell, other_cell] if c.strip()]
             if "instagram.com" in yt_link_cell:
-                combined_ig_text += f"\n{yt_link_cell}"
+                raw_channel_inputs.append(yt_link_cell.strip())
 
+            # REQUIREMENT 1: If channel link is not present in the sheet, omit/skip it completely!
+            if not raw_channel_inputs or all(is_empty_or_placeholder(c) for c in raw_channel_inputs):
+                continue
+
+            combined_ig_text = "\n".join(raw_channel_inputs)
             extracted_handles = extract_instagram_handles(combined_ig_text)
 
-            # CASE 1: No valid Instagram handle found
+            # REQUIREMENT 2: If a link was entered but no valid Instagram handle could be extracted -> Link Invalid
             if not extracted_handles:
-                raw_display = ig_link_cell or ig_name_cell or "No link provided"
+                raw_display = ig_link_cell or ig_name_cell or other_cell
                 items.append({
                     "channel_id": member_id,
                     "creator_name": creator_name,
@@ -193,15 +215,15 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                     "grade": tab["grade"],
                     "category": "Dedicated",
                     "tab_name": tab["name"],
-                    "case_type": "CHANNEL_NOT_FOUND",
-                    "status_label": "Channel Not Found",
+                    "case_type": "LINK_INVALID",
+                    "status_label": "Link Invalid",
                     "status_color": "red",
                     "can_add": False,
                 })
-                summary["not_found"] += 1
+                summary["link_invalid"] += 1
                 continue
 
-            # CASE 2 / CASE 3 for each extracted handle
+            # Process each valid handle
             for handle in extracted_handles:
                 unique_key = f"{member_id}_{handle}"
                 if unique_key in seen_channel_keys:
@@ -227,6 +249,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                     })
                     summary["already_tracked"] += 1
                 else:
+                    # New Channel ready for addition
                     items.append({
                         "channel_id": member_id,
                         "creator_name": creator_name,
