@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
-import { Info, Pencil, Trash2, Upload, UserPlus } from "lucide-react"
+import { FileSpreadsheet, Info, Pencil, Trash2, Upload, UserPlus } from "lucide-react"
 import { clsx } from "clsx"
 import {
   useWisdomWarriors,
@@ -11,6 +11,7 @@ import {
 } from "../../hooks/useWisdomWarriors"
 import { InfluencerModal } from "./InfluencerModal"
 import { BulkInfluencerModal } from "./BulkInfluencerModal"
+import { GoogleSheetSyncModal } from "./GoogleSheetSyncModal"
 import type { WisdomWarrior, InfluencerCategory, InfluencerGrade, WisdomWarriorCreate } from "../../types/wisdomWarrior"
 
 type Tab = "Dedicated" | "In-house influencer"
@@ -166,6 +167,7 @@ export default function WisdomWarriorsPage({ selectedSnapshotRunId, selectedMont
   const [newKeyword, setNewKeyword] = useState("")
   const [showModal, setShowModal] = useState(false)
   const [showBulkModal, setShowBulkModal] = useState(false)
+  const [showSheetSyncModal, setShowSheetSyncModal] = useState(false)
   const [editing, setEditing] = useState<WisdomWarrior | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [bulkMessage, setBulkMessage] = useState("")
@@ -305,6 +307,13 @@ export default function WisdomWarriorsPage({ selectedSnapshotRunId, selectedMont
           <p className="text-sm text-gray-400 mt-0.5">Manage influencer profiles tracked by the scraper</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowSheetSyncModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-sm text-white transition-colors hover:bg-emerald-600 shadow-md shadow-emerald-950/40"
+          >
+            <FileSpreadsheet size={15} />
+            Sync Google Sheet
+          </button>
           <button
             onClick={() => setShowModal(true)}
             className="flex items-center gap-2 rounded-lg bg-purple-700 px-3 py-1.5 text-sm text-white transition-colors hover:bg-purple-600"
@@ -725,6 +734,10 @@ export default function WisdomWarriorsPage({ selectedSnapshotRunId, selectedMont
           initialData={editing}
         />
       )}
+      <GoogleSheetSyncModal
+        isOpen={showSheetSyncModal}
+        onClose={() => setShowSheetSyncModal(false)}
+      />
     </div>
   )
 }

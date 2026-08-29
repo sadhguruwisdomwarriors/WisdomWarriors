@@ -86,3 +86,48 @@ export const fetchWisdomWarriorsMonthlyViews = (query: WisdomWarriorMonthlyViews
 
 export const fetchWisdomWarriorsSnapshotRuns = (): Promise<WisdomWarriorSnapshotRun[]> =>
   fetch(`${SNAPSHOT_RUNS_BASE}?limit=100`).then(r => handleResponse<WisdomWarriorSnapshotRun[]>(r))
+
+export interface GoogleSheetsSyncItem {
+  channel_id: string
+  creator_name: string
+  username: string
+  instagram_url: string
+  raw_input: string
+  grade: string
+  category: string
+  tab_name: string
+  case_type: "NEW_CHANNEL" | "HANDLE_CHANGED" | "CHANNEL_NOT_FOUND" | "ALREADY_TRACKED"
+  status_label: string
+  status_color: "green" | "yellow" | "red" | "gray"
+  can_add: boolean
+}
+
+export interface GoogleSheetsSyncResponse {
+  summary: {
+    total_rows_scanned: number
+    new_channels: number
+    handle_changed: number
+    not_found: number
+    already_tracked: number
+  }
+  items: GoogleSheetsSyncItem[]
+}
+
+export const fetchGoogleSheetsSyncPreview = (): Promise<GoogleSheetsSyncResponse> =>
+  fetch(`${API_URL}/api/scrape/wisdom-warriors/sync/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }).then(r => handleResponse<GoogleSheetsSyncResponse>(r))
+
+export const applyGoogleSheetsSync = (
+  channelsToAdd: Array<{ username: string; grade: string; category: string }>,
+  handlesToUpdate?: Array<{ profile_id: number; new_username: string }>
+): Promise<{ status: string; added_count: number; updated_count: number }> =>
+  fetch(`${API_URL}/api/scrape/wisdom-warriors/sync/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      channels_to_add: channelsToAdd,
+      handles_to_update: handlesToUpdate ?? [],
+    }),
+  }).then(r => handleResponse<{ status: string; added_count: number; updated_count: number }>(r))

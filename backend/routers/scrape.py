@@ -1004,3 +1004,34 @@ async def delete_wisdom_warrior(profile_id: int, db: AsyncSession = Depends(get_
     if not deleted:
         raise HTTPException(status_code=404, detail="Profile not found")
     await db.commit()
+
+
+# ── Google Sheets Sync Endpoints ───────────────────────────────────────────────
+
+from pydantic import BaseModel
+from typing import Optional
+from backend.services.google_sheets_sync_service import analyze_google_sheets, apply_google_sheets_sync
+
+class GoogleSheetsSyncApplyRequest(BaseModel):
+    channels_to_add: list[dict]
+    handles_to_update: Optional[list[dict]] = None
+
+@router.get("/wisdom-warriors/sync/preview")
+@router.post("/wisdom-warriors/sync/preview")
+async def preview_google_sheets_sync(db: AsyncSession = Depends(get_db)):
+    try:
+        return await analyze_google_sheets(db)
+    except Exception as e:
+        logger.error("Failed to analyze Google Sheets: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to analyze Google Sheets: {str(e)}")
+
+@router.post("/wisdom-warriors/sync/apply")
+async def apply_sync_from_google_sheets(
+    body: GoogleSheetsSyncApplyRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        return await apply_google_sheets_sync(db, body.channels_to_add, body.handles_to_update)
+    except Exception as e:
+        logger.error("Failed to apply Google Sheets sync: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to apply sync: {str(e)}")
