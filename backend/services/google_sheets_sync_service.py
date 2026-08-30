@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import gzip
 import io
 import json
 import logging
@@ -137,11 +138,15 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
             "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
         }
     )
     try:
-        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
-            html = response.read().decode("utf-8", errors="ignore").lower()
+        with urllib.request.urlopen(req, context=ssl_context, timeout=4) as response:
+            raw_bytes = response.read()
+            if raw_bytes.startswith(b'\x1f\x8b'):
+                raw_bytes = gzip.decompress(raw_bytes)
+            html = raw_bytes.decode("utf-8", errors="ignore").lower()
             
             has_handle = f"@{clean_h}" in html or f"/{clean_h}/" in html or f"instagram.com/{clean_h}" in html or "og:title" in html
             is_404 = "page not found" in html or "sorry, this page isn't available" in html
@@ -162,10 +167,10 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
     """
-    Checks candidate handles concurrently with controlled concurrency (12 workers).
+    Checks candidate handles concurrently with controlled concurrency (10 workers).
     """
     loop = asyncio.get_running_loop()
-    semaphore = asyncio.Semaphore(12)
+    semaphore = asyncio.Semaphore(10)
 
     async def check_one(h: str):
         async with semaphore:
