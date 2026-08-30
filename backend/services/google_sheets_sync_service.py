@@ -7,7 +7,7 @@ import re
 import ssl
 import urllib.request
 import urllib.error
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 
@@ -105,14 +105,15 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     return result
 
 
-def fetch_tab_csv_sync(gid: str) -> str:
+def fetch_tab_csv_sync(tab_info: Dict[str, str]) -> Tuple[Dict[str, str], str]:
+    gid = tab_info["gid"]
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     )
-    with urllib.request.urlopen(req, timeout=15) as response:
-        return response.read().decode("utf-8", errors="replace")
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return tab_info, response.read().decode("utf-8", errors="replace")
 
 
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
@@ -129,7 +130,7 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     }
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, context=ssl_context, timeout=8) as response:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
             data = json.loads(response.read().decode("utf-8"))
             user = data.get("data", {}).get("user")
             if user and user.get("id"):
@@ -148,10 +149,10 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
     """
-    Checks multiple handles concurrently with controlled concurrency.
+    Checks multiple handles concurrently with high throughput.
     """
     loop = asyncio.get_running_loop()
-    semaphore = asyncio.Semaphore(10)
+    semaphore = asyncio.Semaphore(20)
 
     async def check_one(h: str):
         async with semaphore:
@@ -172,7 +173,7 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[st
 
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
-    Fetches Grade A-E + Inactive tabs:
+    Fetches Grade A-E + Inactive tabs concurrently:
     1. Skips rows where no Instagram link is present in the sheet.
     2. Step 1: Checks Database first (Channel ID / Profile Handle History) -> Already Tracked vs Handle Changed.
     3. Step 2: Checks live reachability -> Link Invalid (broken link) vs Channel Deleted (404/deleted) vs New Channel.
@@ -221,12 +222,18 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     candidate_handles_to_check = set()
     loop = asyncio.get_running_loop()
 
-    for tab in GRADE_TABS:
-        try:
-            csv_text = await loop.run_in_executor(None, fetch_tab_csv_sync, tab["gid"])
-        except Exception as e:
-            logger.error(f"Error fetching tab {tab['name']} ({tab['gid']}): {e}")
+    # Fetch all 6 tabs in parallel for ultra-fast response
+    tab_tasks = [
+        loop.run_in_executor(None, fetch_tab_csv_sync, tab_info)
+        for tab_info in GRADE_TABS
+    ]
+    tab_results = await asyncio.gather(*tab_tasks, return_exceptions=True)
+
+    for res in tab_results:
+        if isinstance(res, Exception):
+            logger.error(f"Error fetching tab: {res}")
             continue
+        tab, csv_text = res
 
         reader = csv.reader(io.StringIO(csv_text))
         header_row = None
