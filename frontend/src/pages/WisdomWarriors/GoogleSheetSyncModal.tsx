@@ -12,7 +12,8 @@ import {
   Search,
   FileSpreadsheet,
   Link2Off,
-  UserX
+  UserX,
+  AlertOctagon
 } from "lucide-react"
 import { 
   fetchGoogleSheetsSyncPreview, 
@@ -26,7 +27,7 @@ interface Props {
 }
 
 type GradeTab = "all" | "A" | "B" | "C" | "D" | "E"
-type StatusTab = "all" | "NEW_CHANNEL" | "HANDLE_CHANGED" | "LINK_INVALID" | "CHANNEL_DELETED" | "ALREADY_TRACKED"
+type StatusTab = "all" | "NEW_CHANNEL" | "HANDLE_CHANGED" | "BROKEN_OR_DELETED" | "LINK_INVALID" | "CHANNEL_DELETED" | "ALREADY_TRACKED"
 
 const GRADE_TABS: Array<{ id: GradeTab; label: string; tabName: string }> = [
   { id: "all", label: "All Tabs", tabName: "All Tabs" },
@@ -107,13 +108,20 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
       handle_changed: 0,
       link_invalid: 0,
       channel_deleted: 0,
+      broken_or_deleted: 0,
       already_tracked: 0,
     }
     gradeFilteredItems.forEach(item => {
       if (item.case_type === "NEW_CHANNEL") summary.new_channels += 1
       else if (item.case_type === "HANDLE_CHANGED") summary.handle_changed += 1
-      else if (item.case_type === "LINK_INVALID") summary.link_invalid += 1
-      else if (item.case_type === "CHANNEL_DELETED") summary.channel_deleted += 1
+      else if (item.case_type === "LINK_INVALID") {
+        summary.link_invalid += 1
+        summary.broken_or_deleted += 1
+      }
+      else if (item.case_type === "CHANNEL_DELETED") {
+        summary.channel_deleted += 1
+        summary.broken_or_deleted += 1
+      }
       else if (item.case_type === "ALREADY_TRACKED") summary.already_tracked += 1
     })
     return summary
@@ -123,7 +131,11 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
   const finalFilteredItems = useMemo(() => {
     return gradeFilteredItems.filter(item => {
       // Status filter
-      if (activeStatusTab !== "all" && item.case_type !== activeStatusTab) {
+      if (activeStatusTab === "BROKEN_OR_DELETED") {
+        if (item.case_type !== "LINK_INVALID" && item.case_type !== "CHANNEL_DELETED") {
+          return false
+        }
+      } else if (activeStatusTab !== "all" && item.case_type !== activeStatusTab) {
         return false
       }
       // Search filter
@@ -252,7 +264,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
         </div>
 
         {/* KPI Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-5 pb-3 bg-gray-950/40 border-b border-gray-800">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 pb-3 bg-gray-950/40 border-b border-gray-800">
           <div 
             onClick={() => setActiveStatusTab("NEW_CHANNEL")}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
@@ -267,7 +279,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
               </span>
               <span className="text-lg font-bold text-white">{statusCounts.new_channels}</span>
             </div>
-            <p className="text-[11px] text-gray-400">Ready to add (Checkbox)</p>
+            <p className="text-[11px] text-gray-400">Active & ready to add (Checkbox)</p>
           </div>
 
           <div 
@@ -288,37 +300,22 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           </div>
 
           <div 
-            onClick={() => setActiveStatusTab("LINK_INVALID")}
+            onClick={() => setActiveStatusTab("BROKEN_OR_DELETED")}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              activeStatusTab === "LINK_INVALID" 
-                ? "bg-rose-950/40 border-rose-500/60 shadow-lg shadow-rose-950/30" 
+              activeStatusTab === "BROKEN_OR_DELETED" 
+                ? "bg-rose-950/50 border-rose-500/60 shadow-lg shadow-rose-950/30" 
                 : "bg-gray-900/80 border-gray-800 hover:border-gray-700"
             }`}
           >
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium text-rose-400 flex items-center gap-1">
-                <Link2Off className="w-3.5 h-3.5" /> Link Invalid
+                <AlertOctagon className="w-3.5 h-3.5" /> Broken / Deleted
               </span>
-              <span className="text-lg font-bold text-white">{statusCounts.link_invalid}</span>
+              <span className="text-lg font-bold text-white">{statusCounts.broken_or_deleted}</span>
             </div>
-            <p className="text-[11px] text-gray-400">Broken / invalid format</p>
-          </div>
-
-          <div 
-            onClick={() => setActiveStatusTab("CHANNEL_DELETED")}
-            className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              activeStatusTab === "CHANNEL_DELETED" 
-                ? "bg-red-950/40 border-red-500/60 shadow-lg shadow-red-950/30" 
-                : "bg-gray-900/80 border-gray-800 hover:border-gray-700"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-red-400 flex items-center gap-1">
-                <UserX className="w-3.5 h-3.5" /> Channel Deleted
-              </span>
-              <span className="text-lg font-bold text-white">{statusCounts.channel_deleted}</span>
-            </div>
-            <p className="text-[11px] text-gray-400">Deleted / not found</p>
+            <p className="text-[11px] text-gray-400">
+              {statusCounts.link_invalid} Invalid • {statusCounts.channel_deleted} Deleted
+            </p>
           </div>
 
           <div 
@@ -348,7 +345,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                 activeStatusTab === "all" ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"
               }`}
             >
-              All Statuses ({statusCounts.total})
+              All ({statusCounts.total})
             </button>
             <button
               onClick={() => setActiveStatusTab("NEW_CHANNEL")}
@@ -356,7 +353,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                 activeStatusTab === "NEW_CHANNEL" ? "bg-emerald-600 text-white" : "text-gray-400 hover:text-white"
               }`}
             >
-              New ({statusCounts.new_channels})
+              New Channels ({statusCounts.new_channels})
             </button>
             <button
               onClick={() => setActiveStatusTab("HANDLE_CHANGED")}
@@ -364,23 +361,15 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                 activeStatusTab === "HANDLE_CHANGED" ? "bg-amber-600 text-white" : "text-gray-400 hover:text-white"
               }`}
             >
-              Changed ({statusCounts.handle_changed})
+              Handle Changed ({statusCounts.handle_changed})
             </button>
             <button
-              onClick={() => setActiveStatusTab("LINK_INVALID")}
+              onClick={() => setActiveStatusTab("BROKEN_OR_DELETED")}
               className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${
-                activeStatusTab === "LINK_INVALID" ? "bg-rose-600 text-white" : "text-gray-400 hover:text-white"
+                activeStatusTab === "BROKEN_OR_DELETED" ? "bg-rose-600 text-white" : "text-gray-400 hover:text-white"
               }`}
             >
-              Link Invalid ({statusCounts.link_invalid})
-            </button>
-            <button
-              onClick={() => setActiveStatusTab("CHANNEL_DELETED")}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${
-                activeStatusTab === "CHANNEL_DELETED" ? "bg-red-600 text-white" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Deleted ({statusCounts.channel_deleted})
+              Broken / Deleted ({statusCounts.broken_or_deleted})
             </button>
           </div>
 
@@ -402,7 +391,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <RefreshCw className="w-8 h-8 animate-spin text-purple-400 mb-3" />
               <p className="text-sm font-medium">Scanning Google Sheets Grade A–E tabs...</p>
-              <p className="text-xs text-gray-500 mt-1">Filtering out missing link rows & validating channel links</p>
+              <p className="text-xs text-gray-500 mt-1">Checking link reachability and verifying Instagram profiles</p>
             </div>
           ) : error ? (
             <div className="p-8 text-center text-red-400">
@@ -412,7 +401,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
             </div>
           ) : finalFilteredItems.length === 0 ? (
             <div className="py-16 text-center text-gray-500 text-sm">
-              No channel rows found for {selectedGradeTab === "all" ? "the selected status" : `Tab ${selectedGradeTab} with this status`}.
+              No channel rows found for {selectedGradeTab === "all" ? "the selected filter" : `Tab ${selectedGradeTab} with this filter`}.
             </div>
           ) : (
             <div className="border border-gray-800 rounded-xl overflow-hidden bg-gray-950/40">

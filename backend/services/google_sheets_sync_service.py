@@ -63,17 +63,14 @@ def is_empty_or_placeholder(text_content: str) -> bool:
 
 def has_attempted_instagram_link(ig_link_cell: str, ig_name_cell: str) -> bool:
     """
-    Determines if the creator provided an actual Instagram link/handle in the sheet,
-    as opposed to leaving it empty, putting placeholders (NA, nil), or writing plain non-handle text.
+    Determines if the creator provided an actual Instagram link/handle in the sheet.
     """
     link_clean = ig_link_cell.strip()
     name_clean = ig_name_cell.strip()
 
-    # If both are empty or placeholders, no IG link was provided
     if (not link_clean or is_empty_or_placeholder(link_clean)) and (not name_clean or is_empty_or_placeholder(name_clean)):
         return False
 
-    # Check if there is an attempted URL or @handle
     if "instagram.com" in link_clean.lower() or "instagram.com" in name_clean.lower():
         return True
     if link_clean.startswith("@") or name_clean.startswith("@"):
@@ -81,11 +78,9 @@ def has_attempted_instagram_link(ig_link_cell: str, ig_name_cell: str) -> bool:
     if link_clean.startswith("http://") or link_clean.startswith("https://") or link_clean.startswith("www."):
         return True
 
-    # If link_clean is a single alphanumeric username (no spaces, len >= 3)
     if link_clean and not is_empty_or_placeholder(link_clean) and " " not in link_clean and len(link_clean) >= 3:
         return True
 
-    # If name_clean is a single alphanumeric username (no spaces, len >= 3) and link_cell is empty/placeholder
     if name_clean and not is_empty_or_placeholder(name_clean) and " " not in name_clean and len(name_clean) >= 3:
         return True
 
@@ -153,36 +148,36 @@ def check_instagram_handle_live_sync(handle: str) -> str:
     """
     url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
         "x-ig-app-id": "936619743392459",
         "Accept": "*/*",
+        "Sec-Fetch-Site": "same-origin",
     }
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=8) as response:
             data = json.loads(response.read().decode("utf-8"))
             user = data.get("data", {}).get("user")
-            if user:
+            if user and user.get("id"):
                 return "VALID"
             else:
                 return "DELETED"
     except urllib.error.HTTPError as e:
-        if e.code == 404 or e.code == 410:
+        if e.code in [404, 410, 400]:
             return "DELETED"
-        # 429 rate limit or 302 redirect means endpoint/account exists
-        return "VALID"
+        return "DELETED"
     except urllib.error.URLError:
         return "INVALID"
     except Exception:
-        return "VALID"
+        return "DELETED"
 
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, str]:
     """
-    Checks multiple handles concurrently using run_in_executor.
+    Checks multiple handles concurrently with controlled concurrency.
     """
     loop = asyncio.get_running_loop()
-    semaphore = asyncio.Semaphore(15)
+    semaphore = asyncio.Semaphore(10)
 
     async def check_one(h: str):
         async with semaphore:
@@ -282,9 +277,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
             # Check if an Instagram link was actually provided
             if not has_attempted_instagram_link(ig_link_cell, ig_name_cell):
-                # Also check if YouTube column was accidentally used for an Instagram URL
                 if "instagram.com" not in yt_link_cell.lower():
-                    # NO Instagram link provided in sheet -> Completely omit from Google Sync!
                     continue
 
             # Gather raw inputs for handle extraction
