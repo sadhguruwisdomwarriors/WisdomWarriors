@@ -36,11 +36,13 @@ INVALID_TERMS = {
     "reel", "tv", "profile", "user", "post", "posts"
 }
 
-SENTENCE_SKIP_PHRASES = [
-    "work in progress", "will share", "not created", "not yet",
-    "don't have", "dont have", "not decided", "no channel", "no link",
-    "not sure", "not applicable", "n/a", "none", "nil", "na", "-", "--"
-]
+SKIP_PHRASES = {
+    "na", "n/a", "nil", "none", "no", "no account", "dont have", "don't have",
+    "does not have", "does not have (yet)", "not created", "not yet", "not yet made",
+    "work in progress", "will share", "will share once ready", "not decided",
+    "not decided yet", "no channel", "no link", "not sure", "not applicable",
+    "-", "--", ".", "...", "", "no insta", "no instagram", "no insta account", "nil."
+}
 
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
@@ -54,9 +56,40 @@ def is_empty_or_placeholder(text_content: str) -> bool:
     if not text_content:
         return True
     cleaned = text_content.strip().lower()
-    if not cleaned:
+    if not cleaned or cleaned in SKIP_PHRASES:
         return True
-    return any(cleaned == phrase or cleaned.startswith(phrase) for phrase in SENTENCE_SKIP_PHRASES)
+    return any(cleaned == phrase or cleaned.startswith(phrase + " ") or cleaned.startswith(phrase + "(") for phrase in SKIP_PHRASES)
+
+
+def has_attempted_instagram_link(ig_link_cell: str, ig_name_cell: str) -> bool:
+    """
+    Determines if the creator provided an actual Instagram link/handle in the sheet,
+    as opposed to leaving it empty, putting placeholders (NA, nil), or writing plain non-handle text.
+    """
+    link_clean = ig_link_cell.strip()
+    name_clean = ig_name_cell.strip()
+
+    # If both are empty or placeholders, no IG link was provided
+    if (not link_clean or is_empty_or_placeholder(link_clean)) and (not name_clean or is_empty_or_placeholder(name_clean)):
+        return False
+
+    # Check if there is an attempted URL or @handle
+    if "instagram.com" in link_clean.lower() or "instagram.com" in name_clean.lower():
+        return True
+    if link_clean.startswith("@") or name_clean.startswith("@"):
+        return True
+    if link_clean.startswith("http://") or link_clean.startswith("https://") or link_clean.startswith("www."):
+        return True
+
+    # If link_clean is a single alphanumeric username (no spaces, len >= 3)
+    if link_clean and not is_empty_or_placeholder(link_clean) and " " not in link_clean and len(link_clean) >= 3:
+        return True
+
+    # If name_clean is a single alphanumeric username (no spaces, len >= 3) and link_cell is empty/placeholder
+    if name_clean and not is_empty_or_placeholder(name_clean) and " " not in name_clean and len(name_clean) >= 3:
+        return True
+
+    return False
 
 
 def extract_instagram_handles(text_content: str) -> List[str]:
@@ -73,13 +106,13 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     # 1. Direct Regex for all Instagram URLs anywhere in the string
     for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
         h = m.group(1).strip().rstrip('/')
-        if h.lower() not in INVALID_TERMS and not h.lower().startswith("share"):
+        if h.lower() not in INVALID_TERMS and not h.lower().startswith("share") and not is_empty_or_placeholder(h):
             handles.append(h.lstrip('@').lower())
 
     # 2. Extract @handles
     for m in re.finditer(r'@([a-zA-Z0-9._]+)', text_content):
         h = m.group(1).strip()
-        if h.lower() not in INVALID_TERMS:
+        if h.lower() not in INVALID_TERMS and not is_empty_or_placeholder(h):
             handles.append(h.lstrip('@').lower())
 
     # 3. If no URLs or @handles were found, check if lines or comma-separated tokens are valid usernames
@@ -87,7 +120,7 @@ def extract_instagram_handles(text_content: str) -> List[str]:
         tokens = re.split(r'[\r\n,;|]+', text_content)
         for token in tokens:
             raw = token.strip().lstrip('@')
-            if not raw or " " in raw or raw.startswith("http"):
+            if not raw or " " in raw or raw.startswith("http") or is_empty_or_placeholder(raw):
                 continue
             if re.match(r'^[a-zA-Z0-9._]{3,30}$', raw):
                 if raw.lower() not in INVALID_TERMS:
@@ -171,7 +204,7 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, str]:
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
     Fetches Grade A-E tabs:
-    1. Skips rows where no channel link is present in the sheet.
+    1. Skips rows where no Instagram link is present in the sheet (never shows in Link Invalid).
     2. Step 1: Checks Database first (Profile ID / Username) -> Already Tracked / Handle Changed.
     3. Step 2: Checks live reachability -> Link Invalid (broken link) vs Channel Deleted (404/deleted) vs New Channel.
     """
@@ -212,7 +245,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
         col_ig_name = 17
         col_ig_link = 18
         col_yt_link = 14
-        col_other = 20
 
         for row_idx, row in enumerate(reader):
             if not row:
@@ -232,8 +264,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         col_ig_link = idx
                     elif "channel link" in cell_clean and "instagram" not in cell_clean:
                         col_yt_link = idx
-                    elif "other channels" in cell_clean or "different social media" in cell_clean:
-                        col_other = idx
                 continue
 
             if not header_row:
@@ -248,24 +278,26 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
             
             ig_link_cell = row[col_ig_link].strip() if len(row) > col_ig_link else ""
             ig_name_cell = row[col_ig_name].strip() if len(row) > col_ig_name else ""
-            other_cell = row[col_other].strip() if len(row) > col_other else ""
             yt_link_cell = row[col_yt_link].strip() if len(row) > col_yt_link else ""
 
-            # Check if any link or handle text was provided
-            raw_channel_inputs = [c for c in [ig_link_cell, ig_name_cell, other_cell] if c.strip()]
-            if "instagram.com" in yt_link_cell:
-                raw_channel_inputs.append(yt_link_cell.strip())
+            # Check if an Instagram link was actually provided
+            if not has_attempted_instagram_link(ig_link_cell, ig_name_cell):
+                # Also check if YouTube column was accidentally used for an Instagram URL
+                if "instagram.com" not in yt_link_cell.lower():
+                    # NO Instagram link provided in sheet -> Completely omit from Google Sync!
+                    continue
 
-            # REQUIREMENT 1: If channel link is not present in the sheet, omit/skip it completely!
-            if not raw_channel_inputs or all(is_empty_or_placeholder(c) for c in raw_channel_inputs):
-                continue
+            # Gather raw inputs for handle extraction
+            raw_channel_inputs = [c for c in [ig_link_cell, ig_name_cell] if c.strip() and not is_empty_or_placeholder(c)]
+            if "instagram.com" in yt_link_cell.lower():
+                raw_channel_inputs.append(yt_link_cell.strip())
 
             combined_ig_text = "\n".join(raw_channel_inputs)
             extracted_handles = extract_instagram_handles(combined_ig_text)
 
-            # REQUIREMENT 2: If a link was entered in sheet but fails to open or is broken -> Link Invalid
+            # If an Instagram link was provided, but the URL is broken / malformed -> Link Invalid
             if not extracted_handles:
-                raw_display = ig_link_cell or ig_name_cell or other_cell
+                raw_display = ig_link_cell or ig_name_cell or "Malformed link"
                 raw_items.append({
                     "channel_id": member_id,
                     "creator_name": creator_name,
