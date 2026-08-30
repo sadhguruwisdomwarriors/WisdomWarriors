@@ -126,6 +126,7 @@ def fetch_tab_csv_sync(spreadsheet_id: str, gid: str) -> str:
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     """
     Synchronously verifies whether an Instagram account is accessible, deleted/404, or invalid.
+    Strict Rule: Only HTTP 404 is marked as DELETED. Live accounts or rate limits default to VALID.
     Returns: {"status": "VALID" | "DELETED" | "INVALID", "user_id": Optional[str], "username": Optional[str]}
     """
     url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
@@ -137,28 +138,32 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     }
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, context=ssl_context, timeout=5) as response:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
             data = json.loads(response.read().decode("utf-8"))
             user = data.get("data", {}).get("user")
             if user and user.get("id"):
                 return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
+            # If 200 returned but user payload is empty -> account is gone
             return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
-        if e.code in [404, 410, 400]:
+        # STRICT: HTTP 404 means the channel was deleted or username doesn't exist
+        if e.code == 404:
             return {"status": "DELETED", "user_id": None, "username": None}
-        return {"status": "DELETED", "user_id": None, "username": None}
+        # 429 (rate limit), 400, 401, 403 are server challenges -> The channel is active / VALID!
+        return {"status": "VALID", "user_id": None, "username": None}
     except urllib.error.URLError:
         return {"status": "INVALID", "user_id": None, "username": None}
     except Exception:
-        return {"status": "DELETED", "user_id": None, "username": None}
+        # Fallback to VALID so real channels are never falsely labeled deleted
+        return {"status": "VALID", "user_id": None, "username": None}
 
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
     """
-    Checks candidate handles concurrently with high concurrency (25 workers).
+    Checks candidate handles concurrently with high concurrency (20 workers).
     """
     loop = asyncio.get_running_loop()
-    semaphore = asyncio.Semaphore(25)
+    semaphore = asyncio.Semaphore(20)
 
     async def check_one(h: str):
         async with semaphore:
