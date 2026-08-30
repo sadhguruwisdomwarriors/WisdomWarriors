@@ -125,37 +125,38 @@ def fetch_tab_csv_sync(spreadsheet_id: str, gid: str) -> str:
 
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     """
-    Synchronously verifies whether an Instagram account is accessible, deleted/404, or invalid.
-    Strict Rule: Only HTTP 404 is marked as DELETED. Live accounts or rate limits default to VALID.
-    Returns: {"status": "VALID" | "DELETED" | "INVALID", "user_id": Optional[str], "username": Optional[str]}
+    Bulletproof Reachability Verification using Instagram OpenGraph signature:
+    - Active / Opening channels return HTML containing <meta property="og:title" ...>
+    - Deleted / Broken / Non-existent accounts return generic splash page with NO og:title
     """
-    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
-        "x-ig-app-id": "936619743392459",
-        "Accept": "*/*",
-        "Sec-Fetch-Site": "same-origin",
-    }
-    req = urllib.request.Request(url, headers=headers)
+    url = f"https://www.instagram.com/{handle}/"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+    )
     try:
         with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            user = data.get("data", {}).get("user")
-            if user and user.get("id"):
-                return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
-            # If 200 returned but user payload is empty -> account is gone
-            return {"status": "DELETED", "user_id": None, "username": None}
+            html = response.read().decode("utf-8", errors="ignore")
+            has_og_title = '<meta property="og:title"' in html or '<meta name="og:title"' in html
+            has_og_desc = '<meta property="og:description"' in html or '<meta name="og:description"' in html
+            is_404_text = "Page Not Found" in html or "Sorry, this page isn't available" in html
+
+            if (has_og_title or has_og_desc) and not is_404_text:
+                return {"status": "VALID", "user_id": None, "username": handle}
+            else:
+                return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
-        # STRICT: HTTP 404 means the channel was deleted or username doesn't exist
-        if e.code == 404:
+        if e.code in [404, 410]:
             return {"status": "DELETED", "user_id": None, "username": None}
-        # 429 (rate limit), 400, 401, 403 are server challenges -> The channel is active / VALID!
-        return {"status": "VALID", "user_id": None, "username": None}
+        return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.URLError:
         return {"status": "INVALID", "user_id": None, "username": None}
     except Exception:
-        # Fallback to VALID so real channels are never falsely labeled deleted
-        return {"status": "VALID", "user_id": None, "username": None}
+        return {"status": "DELETED", "user_id": None, "username": None}
 
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -404,7 +405,6 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
             h = item["username"]
             res_obj = live_status_map.get(h, {"status": "VALID", "user_id": None, "username": None})
             st = res_obj.get("status", "VALID")
-            user_id = res_obj.get("user_id")
 
             if st == "DELETED":
                 item["case_type"] = "CHANNEL_DELETED"
@@ -419,21 +419,11 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                 item["can_add"] = False
                 summary["link_invalid"] += 1
             else:
-                matched_prof = profile_by_id.get(user_id) if user_id else None
-
-                if matched_prof and matched_prof.username and matched_prof.username.lower() != h.lower():
-                    item["case_type"] = "HANDLE_CHANGED"
-                    item["status_label"] = "Handle Changed"
-                    item["status_color"] = "amber"
-                    item["old_username"] = matched_prof.username
-                    item["can_add"] = False
-                    summary["handle_changed"] += 1
-                else:
-                    item["case_type"] = "NEW_CHANNEL"
-                    item["status_label"] = "New Channel"
-                    item["status_color"] = "green"
-                    item["can_add"] = True
-                    summary["new_channels"] += 1
+                item["case_type"] = "NEW_CHANNEL"
+                item["status_label"] = "New Channel"
+                item["status_color"] = "green"
+                item["can_add"] = True
+                summary["new_channels"] += 1
         final_items.append(item)
 
     return {
