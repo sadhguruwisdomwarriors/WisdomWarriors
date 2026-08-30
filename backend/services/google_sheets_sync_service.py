@@ -18,15 +18,19 @@ from backend.repositories.scrape_profile_repo import add_scrape_profiles_bulk, u
 
 logger = logging.getLogger(__name__)
 
-SPREADSHEET_ID = "1rF7tGOjn5gdEWnn3DEwao51wPvDIf2xLgD_WJk47xA0"
-
-GRADE_TABS = [
+DEDICATED_SPREADSHEET_ID = "1rF7tGOjn5gdEWnn3DEwao51wPvDIf2xLgD_WJk47xA0"
+DEDICATED_TABS = [
     {"name": "Grade A", "gid": "0", "grade": "A"},
     {"name": "Grade B", "gid": "1853726635", "grade": "B"},
     {"name": "Grade C", "gid": "690782911", "grade": "C"},
     {"name": "Grade D", "gid": "859249885", "grade": "D"},
     {"name": "Grade E", "gid": "200360753", "grade": "E"},
     {"name": "Inactive", "gid": "157504391", "grade": "Inactive"},
+]
+
+IHI_SPREADSHEET_ID = "1J027IUUkk6wWvbactK6qgRwYUWoEafIxIScQwiDq1BU"
+IHI_TABS = [
+    {"name": "IHI Master", "gid": "1922340728", "grade": "IHI"},
 ]
 
 INVALID_TERMS = {
@@ -42,7 +46,11 @@ SKIP_PHRASES = {
     "does not have", "does not have (yet)", "not created", "not yet", "not yet made",
     "work in progress", "will share", "will share once ready", "not decided",
     "not decided yet", "no channel", "no link", "not sure", "not applicable",
-    "-", "--", ".", "...", "", "no insta", "no instagram", "no insta account", "nil."
+    "-", "--", ".", "...", "", "no insta", "no instagram", "no insta account", "nil.",
+    "yet to open a new page", "yet to open", "not yet opened", "creating new page",
+    "new page", "no page", "nil (will create new account)", "will create new account",
+    "yet to create channel", "in module 2", "i only have my personal ac",
+    "i do not have any social media accounts", "india and aligarh"
 }
 
 ssl_context = ssl.create_default_context()
@@ -105,8 +113,8 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     return result
 
 
-def fetch_tab_csv_sync(gid: str) -> str:
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+def fetch_tab_csv_sync(spreadsheet_id: str, gid: str) -> str:
+    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid}"
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -169,14 +177,23 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[st
     return status_map
 
 
-async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
+async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> Dict[str, Any]:
     """
-    Ultra-fast parallel analyzer:
-    1. Downloads all 6 Google Sheet tabs in parallel (Grade A–E + Inactive).
-    2. Cross-references database Channel ID, profile history, and active scrape_profiles.
-    3. Concurrently verifies remaining candidate new channels via live Instagram check.
+    Parallel sync analyzer supporting both:
+    1. "dedicated": Dedicated Master Database (Grades A-E & Inactive, Category: Dedicated)
+    2. "ihi": IHI Master Database (In-house Influencers, Category: In-house influencer)
     """
     loop = asyncio.get_running_loop()
+    source_lower = (source or "dedicated").strip().lower()
+
+    if source_lower == "ihi":
+        spreadsheet_id = IHI_SPREADSHEET_ID
+        tabs = IHI_TABS
+        default_category = "In-house influencer"
+    else:
+        spreadsheet_id = DEDICATED_SPREADSHEET_ID
+        tabs = DEDICATED_TABS
+        default_category = "Dedicated"
 
     # Step 1: Query DB tables
     scrape_profiles_res = await db.execute(select(ScrapeProfile))
@@ -191,8 +208,8 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     all_history = history_res.scalars().all()
     history_to_pid = {h.handle.lower(): str(h.profile_id) for h in all_history if h.handle}
 
-    # Step 2: Parallel fetch ALL 6 Google Sheet tabs
-    csv_tasks = [loop.run_in_executor(None, fetch_tab_csv_sync, tab["gid"]) for tab in GRADE_TABS]
+    # Step 2: Parallel fetch all tabs
+    csv_tasks = [loop.run_in_executor(None, fetch_tab_csv_sync, spreadsheet_id, tab["gid"]) for tab in tabs]
     csv_results = await asyncio.gather(*csv_tasks, return_exceptions=True)
 
     raw_items: List[Dict[str, Any]] = []
@@ -206,25 +223,49 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
         "link_invalid": 0,
         "channel_deleted": 0,
         "already_tracked": 0,
+        "source": source_lower,
     }
 
-    for idx, tab in enumerate(GRADE_TABS):
+    for idx, tab in enumerate(tabs):
         csv_text = csv_results[idx]
         if isinstance(csv_text, Exception) or not isinstance(csv_text, str):
             logger.error(f"Error fetching tab {tab['name']}: {csv_text}")
             continue
 
         reader = list(csv.reader(io.StringIO(csv_text)))
-        header_idx = next((i for i, row in enumerate(reader) if "ID" in row and ("Instagram" in "".join(row) or "Channel" in "".join(row) or "Full Name" in row)), -1)
+        header_idx = -1
+        for i, row in enumerate(reader):
+            row_str = " ".join(row).lower()
+            if "id" in row_str and ("name" in row_str or "channel" in row_str or "link" in row_str):
+                header_idx = i
+                break
         if header_idx == -1:
-            continue
+            header_idx = 0
 
         header = reader[header_idx]
-        col_id = next((i for i, c in enumerate(header) if c.strip().lower() == "id"), 0)
-        col_name = next((i for i, c in enumerate(header) if "full name" in c.strip().lower()), 1)
-        col_ig_name = next((i for i, c in enumerate(header) if "instagram channel name" in c.strip().lower()), 17)
-        col_ig_link = next((i for i, c in enumerate(header) if "instagram channel link" in c.strip().lower()), 18)
-        col_yt_link = next((i for i, c in enumerate(header) if "channel link" in c.strip().lower() and "instagram" not in c.strip().lower()), 14)
+        col_id = 0
+        col_name = 1
+        col_ig_name = -1
+        col_ig_link = -1
+        col_yt_link = -1
+        col_grade = -1
+
+        for idx_c, cell in enumerate(header):
+            cell_clean = cell.strip().lower()
+            if cell_clean == "id":
+                col_id = idx_c
+            elif "full name" in cell_clean or cell_clean == "name":
+                col_name = idx_c
+            elif "instagram channel name" in cell_clean:
+                col_ig_name = idx_c
+            elif "instagram channel link" in cell_clean:
+                col_ig_link = idx_c
+            elif "channel links" in cell_clean or "links" in cell_clean:
+                col_ig_link = idx_c
+            elif "channel link" in cell_clean and "instagram" not in cell_clean:
+                col_yt_link = idx_c
+            elif cell_clean == "grade":
+                col_grade = idx_c
 
         for row in reader[header_idx+1:]:
             if not row or len(row) <= col_id or not row[col_id].strip().upper().startswith("SWW"):
@@ -232,9 +273,18 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
             member_id = row[col_id].strip()
             creator_name = row[col_name].strip() if len(row) > col_name else ""
-            ig_link_cell = row[col_ig_link].strip() if len(row) > col_ig_link else ""
-            ig_name_cell = row[col_ig_name].strip() if len(row) > col_ig_name else ""
-            yt_link_cell = row[col_yt_link].strip() if len(row) > col_yt_link else ""
+            
+            ig_link_cell = row[col_ig_link].strip() if (col_ig_link >= 0 and len(row) > col_ig_link) else ""
+            ig_name_cell = row[col_ig_name].strip() if (col_ig_name >= 0 and len(row) > col_ig_name) else ""
+            yt_link_cell = row[col_yt_link].strip() if (col_yt_link >= 0 and len(row) > col_yt_link) else ""
+            
+            row_grade = tab["grade"]
+            if col_grade >= 0 and len(row) > col_grade and row[col_grade].strip():
+                clean_grade = row[col_grade].strip()
+                if clean_grade.upper() in ["A", "B", "C", "D", "E", "INACTIVE"]:
+                    row_grade = "Inactive" if clean_grade.upper() == "INACTIVE" else clean_grade.upper()
+                elif clean_grade:
+                    row_grade = clean_grade
 
             # Check if any Instagram link/handle was provided
             if is_empty_or_placeholder(ig_link_cell) and is_empty_or_placeholder(ig_name_cell):
@@ -264,8 +314,8 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                     "username": "",
                     "instagram_url": "",
                     "raw_input": raw_display,
-                    "grade": tab["grade"],
-                    "category": "Dedicated",
+                    "grade": row_grade,
+                    "category": default_category,
                     "tab_name": tab["name"],
                     "case_type": "LINK_INVALID",
                     "status_label": "Link Invalid",
@@ -295,8 +345,8 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         "old_username": prof.username,
                         "instagram_url": instagram_url,
                         "raw_input": ig_link_cell or handle,
-                        "grade": tab["grade"],
-                        "category": "Dedicated",
+                        "grade": row_grade,
+                        "category": default_category,
                         "tab_name": tab["name"],
                         "case_type": "HANDLE_CHANGED",
                         "status_label": "Handle Changed",
@@ -311,8 +361,8 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         "username": handle,
                         "instagram_url": instagram_url,
                         "raw_input": ig_link_cell or handle,
-                        "grade": tab["grade"],
-                        "category": "Dedicated",
+                        "grade": row_grade,
+                        "category": default_category,
                         "tab_name": tab["name"],
                         "case_type": "ALREADY_TRACKED",
                         "status_label": "Already Tracked",
@@ -328,8 +378,8 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         "username": handle,
                         "instagram_url": instagram_url,
                         "raw_input": ig_link_cell or handle,
-                        "grade": tab["grade"],
-                        "category": "Dedicated",
+                        "grade": row_grade,
+                        "category": default_category,
                         "tab_name": tab["name"],
                         "case_type": "PENDING_CHECK",
                         "status_label": "Checking...",

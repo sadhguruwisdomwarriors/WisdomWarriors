@@ -1012,15 +1012,23 @@ from pydantic import BaseModel
 from typing import Optional
 from backend.services.google_sheets_sync_service import analyze_google_sheets, apply_google_sheets_sync
 
+class GoogleSheetsSyncPreviewRequest(BaseModel):
+    source: Optional[str] = "dedicated"
+
 class GoogleSheetsSyncApplyRequest(BaseModel):
     channels_to_add: list[dict]
     handles_to_update: Optional[list[dict]] = None
 
 @router.get("/wisdom-warriors/sync/preview")
 @router.post("/wisdom-warriors/sync/preview")
-async def preview_google_sheets_sync(db: AsyncSession = Depends(get_db)):
+async def preview_google_sheets_sync(
+    source: Optional[str] = "dedicated",
+    body: Optional[GoogleSheetsSyncPreviewRequest] = None,
+    db: AsyncSession = Depends(get_db)
+):
     try:
-        return await analyze_google_sheets(db)
+        selected_source = body.source if (body and body.source) else (source or "dedicated")
+        return await analyze_google_sheets(db, source=selected_source)
     except Exception as e:
         logger.error("Failed to analyze Google Sheets: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to analyze Google Sheets: {str(e)}")

@@ -14,7 +14,9 @@ import {
   Link2Off,
   UserX,
   AlertOctagon,
-  ArrowRight
+  ArrowRight,
+  Database,
+  Users
 } from "lucide-react"
 import { 
   fetchGoogleSheetsSyncPreview, 
@@ -27,22 +29,13 @@ interface Props {
   onClose: () => void
 }
 
-type GradeTab = "all" | "A" | "B" | "C" | "D" | "E" | "Inactive"
+type SyncSource = "dedicated" | "ihi"
 type StatusTab = "all" | "NEW_CHANNEL" | "HANDLE_CHANGED" | "BROKEN_OR_DELETED" | "LINK_INVALID" | "CHANNEL_DELETED" | "ALREADY_TRACKED"
-
-const GRADE_TABS: Array<{ id: GradeTab; label: string; tabName: string }> = [
-  { id: "all", label: "All Tabs", tabName: "All Tabs" },
-  { id: "A", label: "Grade A", tabName: "Grade A" },
-  { id: "B", label: "Grade B", tabName: "Grade B" },
-  { id: "C", label: "Grade C", tabName: "Grade C" },
-  { id: "D", label: "Grade D", tabName: "Grade D" },
-  { id: "E", label: "Grade E", tabName: "Grade E" },
-  { id: "Inactive", label: "Inactive", tabName: "Inactive" },
-]
 
 export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
   const queryClient = useQueryClient()
-  const [selectedGradeTab, setSelectedGradeTab] = useState<GradeTab>("all")
+  const [selectedSource, setSelectedSource] = useState<SyncSource>("dedicated")
+  const [selectedGradeTab, setSelectedGradeTab] = useState<string>("all")
   const [activeStatusTab, setActiveStatusTab] = useState<StatusTab>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set())
@@ -54,8 +47,8 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
     refetch, 
     error 
   } = useQuery({
-    queryKey: ["googleSheetsSyncPreview"],
-    queryFn: fetchGoogleSheetsSyncPreview,
+    queryKey: ["googleSheetsSyncPreview", selectedSource],
+    queryFn: () => fetchGoogleSheetsSyncPreview(selectedSource),
     enabled: isOpen,
     refetchOnWindowFocus: false,
   })
@@ -81,19 +74,28 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
     },
   })
 
-  // Tab-wise counts for Grade A-E + Inactive
-  const gradeCounts = useMemo(() => {
-    const counts: Record<GradeTab, number> = { all: 0, A: 0, B: 0, C: 0, D: 0, E: 0, Inactive: 0 }
-    if (!syncData?.items) return counts
-
-    counts.all = syncData.items.length
-    syncData.items.forEach(item => {
-      if (item.grade in counts) {
-        counts[item.grade as GradeTab] += 1
-      }
-    })
-    return counts
-  }, [syncData])
+  // Dynamic Grade Tabs based on the active dataset
+  const dynamicGradeTabs = useMemo(() => {
+    if (!syncData?.items) return [{ id: "all", label: "All Tabs", count: 0 }]
+    
+    if (selectedSource === "dedicated") {
+      const fixedOrder = ["all", "A", "B", "C", "D", "E", "Inactive"]
+      return fixedOrder.map(gid => {
+        if (gid === "all") return { id: "all", label: "All Tabs", count: syncData.items.length }
+        const count = syncData.items.filter(it => it.grade === gid).length
+        return { id: gid, label: gid === "Inactive" ? "Inactive" : `Grade ${gid}`, count }
+      })
+    } else {
+      // IHI Master tabs
+      const uniqueGrades = Array.from(new Set(syncData.items.map(it => it.grade))).filter(Boolean)
+      const tabs = [{ id: "all", label: "All (IHI Master)", count: syncData.items.length }]
+      uniqueGrades.forEach(g => {
+        const count = syncData.items.filter(it => it.grade === g).length
+        tabs.push({ id: g, label: g.startsWith("Grade") ? g : `Grade ${g}`, count })
+      })
+      return tabs
+    }
+  }, [syncData, selectedSource])
 
   // Items filtered by Grade Tab first
   const gradeFilteredItems = useMemo(() => {
@@ -185,6 +187,15 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
     setSelectedUsernames(next)
   }
 
+  const handleSourceChange = (newSource: SyncSource) => {
+    if (newSource !== selectedSource) {
+      setSelectedSource(newSource)
+      setSelectedGradeTab("all")
+      setActiveStatusTab("all")
+      setSelectedUsernames(new Set())
+    }
+  }
+
   const handleApply = () => {
     if (!syncData?.items) return
     const itemsToAdd = syncData.items.filter(
@@ -215,7 +226,9 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                   Sync Channels from Google Sheets
                 </h2>
                 <p className="text-xs text-gray-400">
-                  Segregated by Google Sheet Tabs (Grades A–E & Inactive) • Missing link rows are filtered out
+                  {selectedSource === "dedicated" 
+                    ? "Dedicated Master Database (Grades A–E & Inactive) • Missing links filtered out"
+                    : "IHI Master Database (In-house Influencers) • Missing links filtered out"}
                 </p>
               </div>
             </div>
@@ -239,11 +252,39 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           </div>
         </div>
 
+        {/* Database Source Switcher (Dedicated vs IHI) */}
+        <div className="flex items-center gap-3 px-5 py-2.5 bg-gray-950/90 border-b border-gray-800">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-purple-400" /> Database:
+          </span>
+          <div className="flex items-center gap-1 bg-gray-900 p-1 rounded-xl border border-gray-800">
+            <button
+              onClick={() => handleSourceChange("dedicated")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                selectedSource === "dedicated"
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-950/50"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> Dedicated Master
+            </button>
+            <button
+              onClick={() => handleSourceChange("ihi")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                selectedSource === "ihi"
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-950/50"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> IHI Master (In-house)
+            </button>
+          </div>
+        </div>
+
         {/* Primary Grade Tab Navigation */}
         <div className="flex items-center gap-2 px-5 pt-3 pb-0 bg-gray-950/80 border-b border-gray-800 overflow-x-auto">
-          {GRADE_TABS.map(tab => {
+          {dynamicGradeTabs.map(tab => {
             const isSelected = selectedGradeTab === tab.id
-            const count = gradeCounts[tab.id]
             return (
               <button
                 key={tab.id}
@@ -258,7 +299,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                   isSelected ? "bg-emerald-600 text-white" : "bg-gray-800 text-gray-400"
                 }`}>
-                  {count}
+                  {tab.count}
                 </span>
               </button>
             )
@@ -392,7 +433,9 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <RefreshCw className="w-8 h-8 animate-spin text-purple-400 mb-3" />
-              <p className="text-sm font-medium">Scanning Google Sheets Grade A–E & Inactive tabs...</p>
+              <p className="text-sm font-medium">
+                Scanning {selectedSource === "dedicated" ? "Dedicated Master Database (6 Tabs)" : "IHI Master Database"}...
+              </p>
               <p className="text-xs text-gray-500 mt-1">Checking link reachability and verifying Instagram profiles</p>
             </div>
           ) : error ? (
@@ -515,13 +558,17 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                         {/* Grade */}
                         <td className="p-3 text-center">
                           <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-gray-800 text-gray-300 border border-gray-700">
-                            {item.grade === "Inactive" ? "Inactive" : `Grade ${item.grade}`}
+                            {item.grade === "Inactive" ? "Inactive" : item.grade.startsWith("Grade") ? item.grade : `Grade ${item.grade}`}
                           </span>
                         </td>
 
                         {/* Category */}
                         <td className="p-3 text-center">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-950/60 text-purple-300 border border-purple-800/40">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
+                            item.category === "In-house influencer"
+                              ? "bg-blue-950/60 text-blue-300 border-blue-800/40"
+                              : "bg-purple-950/60 text-purple-300 border-purple-800/40"
+                          }`}>
                             {item.category}
                           </span>
                         </td>
@@ -569,11 +616,9 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
             <span>
               Selected: <strong className="text-emerald-400">{selectedUsernames.size}</strong> new channels
             </span>
-            {selectedGradeTab !== "all" && (
-              <span className="text-gray-500">
-                (Filtering by Tab {selectedGradeTab})
-              </span>
-            )}
+            <span className="text-gray-500">
+              ({selectedSource === "dedicated" ? "Dedicated Master" : "IHI Master"})
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
