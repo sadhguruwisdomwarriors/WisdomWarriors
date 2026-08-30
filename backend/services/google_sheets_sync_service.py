@@ -258,7 +258,7 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
         header_idx = -1
         for i, row in enumerate(reader):
             row_str = " ".join(row).lower()
-            if "id" in row_str and ("name" in row_str or "channel" in row_str or "link" in row_str):
+            if "name" in row_str or "channel" in row_str or "link" in row_str or "s.no" in row_str or "email" in row_str:
                 header_idx = i
                 break
         if header_idx == -1:
@@ -274,15 +274,14 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
 
         for idx_c, cell in enumerate(header):
             cell_clean = cell.strip().lower()
-            if cell_clean == "id":
-                col_id = idx_c
+            if cell_clean in ["id", "s.no"]:
+                if cell_clean == "id":
+                    col_id = idx_c
             elif "full name" in cell_clean or cell_clean == "name":
                 col_name = idx_c
             elif "instagram channel name" in cell_clean:
                 col_ig_name = idx_c
-            elif "instagram channel link" in cell_clean:
-                col_ig_link = idx_c
-            elif "channel links" in cell_clean or "links" in cell_clean:
+            elif "instagram channel link" in cell_clean or "channel links" in cell_clean or cell_clean == "links":
                 col_ig_link = idx_c
             elif "channel link" in cell_clean and "instagram" not in cell_clean:
                 col_yt_link = idx_c
@@ -290,12 +289,19 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                 col_grade = idx_c
 
         for row in reader[header_idx+1:]:
-            if not row or len(row) <= col_id or not row[col_id].strip().upper().startswith("SWW"):
+            if not row or len(row) == 0:
                 continue
 
-            member_id = row[col_id].strip()
-            creator_name = row[col_name].strip() if len(row) > col_name else ""
-            
+            member_id = ""
+            if len(row) > 0 and row[0].strip().upper().startswith("SWW"):
+                member_id = row[0].strip()
+            elif col_id >= 0 and len(row) > col_id and row[col_id].strip().upper().startswith("SWW"):
+                member_id = row[col_id].strip()
+
+            if not member_id:
+                continue
+
+            creator_name = row[col_name].strip() if (col_name >= 0 and len(row) > col_name) else ""
             ig_link_cell = row[col_ig_link].strip() if (col_ig_link >= 0 and len(row) > col_ig_link) else ""
             ig_name_cell = row[col_ig_name].strip() if (col_ig_name >= 0 and len(row) > col_ig_name) else ""
             yt_link_cell = row[col_yt_link].strip() if (col_yt_link >= 0 and len(row) > col_yt_link) else ""
