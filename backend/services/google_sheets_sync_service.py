@@ -125,49 +125,31 @@ def fetch_tab_csv_sync(spreadsheet_id: str, gid: str) -> str:
 
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     """
-    Hybrid Server-Friendly Reachability Analyzer:
-    1. Primary: Instagram Mobile API endpoint (i.instagram.com) with App headers.
-    2. Fallback: Googlebot Crawler Signature to verify profile page existence.
+    Bulletproof Reachability Verification via Instagram SEO Crawler Endpoint:
+    - Active / Opening channels return HTML containing @handle and profile info.
+    - Deleted / Broken / Missing channels return Page Not Found splash without handle.
     """
-    # Step A: Instagram Mobile App endpoint (i.instagram.com)
-    url_api = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={handle}"
-    req_api = urllib.request.Request(
-        url_api,
-        headers={
-            "User-Agent": "Instagram 278.0.0.19.115 Android (30/11; 480dpi; 1080x2280; Xiaomi; Redmi Note 9; merlin; mt6769; en_US; 461571439)",
-            "x-ig-app-id": "936619743392459",
-            "Accept": "*/*",
-        }
-    )
-    try:
-        with urllib.request.urlopen(req_api, context=ssl_context, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            user = data.get("data", {}).get("user")
-            if user and user.get("id"):
-                return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
-            return {"status": "DELETED", "user_id": None, "username": None}
-    except urllib.error.HTTPError as e:
-        if e.code in [404, 410]:
-            return {"status": "DELETED", "user_id": None, "username": None}
-        # If rate-limited / challenged, continue to fallback
-    except Exception:
-        pass
-
-    # Step B: Googlebot Search Signature Fallback
-    url_web = f"https://www.instagram.com/{handle}/"
-    req_web = urllib.request.Request(
-        url_web,
+    clean_h = handle.strip().lower().lstrip('@')
+    url = f"https://www.instagram.com/{clean_h}/"
+    req = urllib.request.Request(
+        url,
         headers={
             "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-            "Accept": "text/html,application/xhtml+xml",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
         }
     )
     try:
-        with urllib.request.urlopen(req_web, context=ssl_context, timeout=5) as resp:
-            html = resp.read().decode("utf-8", errors="ignore").lower()
-            if f"@{handle.lower()}" in html or f"/{handle.lower()}/" in html or "og:title" in html:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
+            html = response.read().decode("utf-8", errors="ignore").lower()
+            
+            has_handle = f"@{clean_h}" in html or f"/{clean_h}/" in html or f"instagram.com/{clean_h}" in html or "og:title" in html
+            is_404 = "page not found" in html or "sorry, this page isn't available" in html
+
+            if has_handle and not is_404:
                 return {"status": "VALID", "user_id": None, "username": handle}
-            return {"status": "DELETED", "user_id": None, "username": None}
+            else:
+                return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
         if e.code in [404, 410]:
             return {"status": "DELETED", "user_id": None, "username": None}
@@ -180,10 +162,10 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
     """
-    Checks candidate handles concurrently with high concurrency (20 workers).
+    Checks candidate handles concurrently with controlled concurrency (12 workers).
     """
     loop = asyncio.get_running_loop()
-    semaphore = asyncio.Semaphore(20)
+    semaphore = asyncio.Semaphore(12)
 
     async def check_one(h: str):
         async with semaphore:
