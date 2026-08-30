@@ -1,6 +1,5 @@
 import asyncio
 import csv
-import gzip
 import io
 import json
 import logging
@@ -126,35 +125,49 @@ def fetch_tab_csv_sync(spreadsheet_id: str, gid: str) -> str:
 
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     """
-    Bulletproof Reachability Verification using Instagram OpenGraph signature:
-    - Active / Opening channels return HTML containing <meta property="og:title" ...>
-    - Deleted / Broken / Non-existent accounts return generic splash page with NO og:title
+    Hybrid Server-Friendly Reachability Analyzer:
+    1. Primary: Instagram Mobile API endpoint (i.instagram.com) with App headers.
+    2. Fallback: Googlebot Crawler Signature to verify profile page existence.
     """
-    url = f"https://www.instagram.com/{handle}/"
-    req = urllib.request.Request(
-        url,
+    # Step A: Instagram Mobile App endpoint (i.instagram.com)
+    url_api = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={handle}"
+    req_api = urllib.request.Request(
+        url_api,
         headers={
-            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "identity",
+            "User-Agent": "Instagram 278.0.0.19.115 Android (30/11; 480dpi; 1080x2280; Xiaomi; Redmi Note 9; merlin; mt6769; en_US; 461571439)",
+            "x-ig-app-id": "936619743392459",
+            "Accept": "*/*",
         }
     )
     try:
-        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
-            raw_bytes = response.read()
-            if raw_bytes.startswith(b'\x1f\x8b'):
-                raw_bytes = gzip.decompress(raw_bytes)
-            
-            html = raw_bytes.decode("utf-8", errors="ignore").lower()
-            has_og_title = 'property="og:title"' in html or 'name="og:title"' in html or '<meta property="og:title"' in html
-            has_og_desc = 'property="og:description"' in html or 'name="og:description"' in html
-            is_404_text = "page not found" in html or "sorry, this page isn't available" in html
+        with urllib.request.urlopen(req_api, context=ssl_context, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            user = data.get("data", {}).get("user")
+            if user and user.get("id"):
+                return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
+            return {"status": "DELETED", "user_id": None, "username": None}
+    except urllib.error.HTTPError as e:
+        if e.code in [404, 410]:
+            return {"status": "DELETED", "user_id": None, "username": None}
+        # If rate-limited / challenged, continue to fallback
+    except Exception:
+        pass
 
-            if (has_og_title or has_og_desc) and not is_404_text:
+    # Step B: Googlebot Search Signature Fallback
+    url_web = f"https://www.instagram.com/{handle}/"
+    req_web = urllib.request.Request(
+        url_web,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Accept": "text/html,application/xhtml+xml",
+        }
+    )
+    try:
+        with urllib.request.urlopen(req_web, context=ssl_context, timeout=5) as resp:
+            html = resp.read().decode("utf-8", errors="ignore").lower()
+            if f"@{handle.lower()}" in html or f"/{handle.lower()}/" in html or "og:title" in html:
                 return {"status": "VALID", "user_id": None, "username": handle}
-            else:
-                return {"status": "DELETED", "user_id": None, "username": None}
+            return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
         if e.code in [404, 410]:
             return {"status": "DELETED", "user_id": None, "username": None}
@@ -411,6 +424,7 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
             h = item["username"]
             res_obj = live_status_map.get(h, {"status": "VALID", "user_id": None, "username": None})
             st = res_obj.get("status", "VALID")
+            user_id = res_obj.get("user_id")
 
             if st == "DELETED":
                 item["case_type"] = "CHANNEL_DELETED"
@@ -425,11 +439,21 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                 item["can_add"] = False
                 summary["link_invalid"] += 1
             else:
-                item["case_type"] = "NEW_CHANNEL"
-                item["status_label"] = "New Channel"
-                item["status_color"] = "green"
-                item["can_add"] = True
-                summary["new_channels"] += 1
+                matched_prof = profile_by_id.get(user_id) if user_id else None
+
+                if matched_prof and matched_prof.username and matched_prof.username.lower() != h.lower():
+                    item["case_type"] = "HANDLE_CHANGED"
+                    item["status_label"] = "Handle Changed"
+                    item["status_color"] = "amber"
+                    item["old_username"] = matched_prof.username
+                    item["can_add"] = False
+                    summary["handle_changed"] += 1
+                else:
+                    item["case_type"] = "NEW_CHANNEL"
+                    item["status_label"] = "New Channel"
+                    item["status_color"] = "green"
+                    item["can_add"] = True
+                    summary["new_channels"] += 1
         final_items.append(item)
 
     return {
