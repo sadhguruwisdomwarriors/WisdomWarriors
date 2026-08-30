@@ -26,7 +26,7 @@ interface Props {
   onClose: () => void
 }
 
-type GradeTab = "all" | "A" | "B" | "C" | "D" | "E"
+type GradeTab = "all" | "A" | "B" | "C" | "D" | "E" | "Inactive"
 type StatusTab = "all" | "NEW_CHANNEL" | "HANDLE_CHANGED" | "BROKEN_OR_DELETED" | "LINK_INVALID" | "CHANNEL_DELETED" | "ALREADY_TRACKED"
 
 const GRADE_TABS: Array<{ id: GradeTab; label: string; tabName: string }> = [
@@ -36,6 +36,7 @@ const GRADE_TABS: Array<{ id: GradeTab; label: string; tabName: string }> = [
   { id: "C", label: "Grade C", tabName: "Grade C" },
   { id: "D", label: "Grade D", tabName: "Grade D" },
   { id: "E", label: "Grade E", tabName: "Grade E" },
+  { id: "Inactive", label: "Inactive", tabName: "Inactive" },
 ]
 
 export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
@@ -79,9 +80,9 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
     },
   })
 
-  // Tab-wise counts for Grade A-E
+  // Tab-wise counts for Grade A-E + Inactive
   const gradeCounts = useMemo(() => {
-    const counts: Record<GradeTab, number> = { all: 0, A: 0, B: 0, C: 0, D: 0, E: 0 }
+    const counts: Record<GradeTab, number> = { all: 0, A: 0, B: 0, C: 0, D: 0, E: 0, Inactive: 0 }
     if (!syncData?.items) return counts
 
     counts.all = syncData.items.length
@@ -213,7 +214,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                   Sync Channels from Google Sheets
                 </h2>
                 <p className="text-xs text-gray-400">
-                  Segregated by Google Sheet Tabs (Grades A–E) • Missing link rows are filtered out
+                  Segregated by Google Sheet Tabs (Grades A–E & Inactive) • Missing link rows are filtered out
                 </p>
               </div>
             </div>
@@ -237,7 +238,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           </div>
         </div>
 
-        {/* Primary Grade Tab Navigation */}
+        {/* Primary Grade Tab Navigation (Including Inactive Tab) */}
         <div className="flex items-center gap-2 px-5 pt-3 pb-0 bg-gray-950/80 border-b border-gray-800 overflow-x-auto">
           {GRADE_TABS.map(tab => {
             const isSelected = selectedGradeTab === tab.id
@@ -390,7 +391,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <RefreshCw className="w-8 h-8 animate-spin text-purple-400 mb-3" />
-              <p className="text-sm font-medium">Scanning Google Sheets Grade A–E tabs...</p>
+              <p className="text-sm font-medium">Scanning Google Sheets Grade A–E & Inactive tabs...</p>
               <p className="text-xs text-gray-500 mt-1">Checking link reachability and verifying Instagram profiles</p>
             </div>
           ) : error ? (
@@ -499,7 +500,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                         {/* Grade */}
                         <td className="p-3 text-center">
                           <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-gray-800 text-gray-300 border border-gray-700">
-                            Grade {item.grade}
+                            {item.grade === "Inactive" ? "Inactive" : `Grade ${item.grade}`}
                           </span>
                         </td>
 

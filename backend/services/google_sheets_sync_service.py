@@ -26,6 +26,7 @@ GRADE_TABS = [
     {"name": "Grade C", "gid": "690782911", "grade": "C"},
     {"name": "Grade D", "gid": "859249885", "grade": "D"},
     {"name": "Grade E", "gid": "200360753", "grade": "E"},
+    {"name": "Inactive", "gid": "157504391", "grade": "Inactive"},
 ]
 
 INVALID_TERMS = {
@@ -171,7 +172,7 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, str]:
 
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
-    Fetches Grade A-E tabs:
+    Fetches Grade A-E + Inactive tabs:
     1. Skips rows where no Instagram link is present in the sheet (never shows in Link Invalid).
     2. Step 1: Checks Database first (Profile ID / Username) -> Already Tracked / Handle Changed.
     3. Step 2: Checks live reachability -> Link Invalid (broken link) vs Channel Deleted (404/deleted) vs New Channel.
@@ -261,7 +262,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
             extracted_handles = extract_instagram_handles(target_text)
 
-            # If ig_name has an extra specific handle (e.g. @sadhgurujistory)
+            # If ig_name has an extra specific handle
             if not is_empty_or_placeholder(ig_name_cell) and target_text != ig_name_cell:
                 extra_handles = extract_instagram_handles(ig_name_cell)
                 for eh in extra_handles:
@@ -385,7 +386,7 @@ async def apply_google_sheets_sync(
             {
                 "username": item["username"],
                 "category": item.get("category", "Dedicated"),
-                "grade": item.get("grade", "E"),
+                "grade": item.get("grade", "Inactive"),
             }
             for item in channels_to_add
             if item.get("username")
