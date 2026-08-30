@@ -38,7 +38,8 @@ INVALID_TERMS = {
     "work in progress", "don't have any", "dont have any", "no", "-", "--",
     "not decided yet", "reels", "p", "explore", "stories", "share", "tags",
     "about", "help", "instagram", "https", "http", "www", "null", "undefined",
-    "reel", "tv", "profile", "user", "post", "posts"
+    "reel", "tv", "profile", "user", "post", "posts", "youtube", "twitter",
+    "linkedin", "facebook", "fb", "social", "media"
 }
 
 SKIP_PHRASES = {
@@ -50,7 +51,10 @@ SKIP_PHRASES = {
     "yet to open a new page", "yet to open", "not yet opened", "creating new page",
     "new page", "no page", "nil (will create new account)", "will create new account",
     "yet to create channel", "in module 2", "i only have my personal ac",
-    "i do not have any social media accounts", "india and aligarh"
+    "i only have my personal ac.", "i do not have any social media accounts", "india and aligarh",
+    "i'm creating new channel", "i am creating new channel", "creating new channel",
+    "yet to create channel - in module 2", "yet to create channel - in module 2",
+    "no channel link", "no link available", "not available"
 }
 
 VERIFIED_DELETED_OR_INVALID = {
@@ -81,7 +85,7 @@ def is_empty_or_placeholder(text_content: str) -> bool:
     cleaned = text_content.strip().lower()
     if not cleaned or cleaned in SKIP_PHRASES:
         return True
-    return any(cleaned == phrase or cleaned.startswith(phrase + " ") or cleaned.startswith(phrase + "(") for phrase in SKIP_PHRASES)
+    return any(cleaned == phrase or cleaned.startswith(phrase + " ") or cleaned.startswith(phrase + "(") or cleaned.startswith(phrase + " -") for phrase in SKIP_PHRASES)
 
 
 def extract_instagram_handles(text_content: str) -> List[str]:
@@ -98,23 +102,34 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     # 1. Direct Regex for all Instagram URLs anywhere in the string
     for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
         h = m.group(1).strip().rstrip('/')
-        if not is_empty_or_placeholder(h) and not h.lower().startswith("share") and h.lower() not in INVALID_TERMS:
+        if not is_empty_or_placeholder(h) and not h.lower().startswith("share") and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
             handles.append(h.lstrip('@').lower())
 
-    # 2. Extract @handles
+    # 2. Freeform patterns like "Insta - username", "Instagram - username", "Insta : username"
+    for m in re.finditer(r'(?:insta|instagram)\s*(?:-|:)\s*([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
+        h = m.group(1).strip()
+        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
+            handles.append(h.lstrip('@').lower())
+
+    for m in re.finditer(r'([a-zA-Z0-9._]+)\s*(?:-|:)\s*(?:insta|instagram)', text_content, re.IGNORECASE):
+        h = m.group(1).strip()
+        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
+            handles.append(h.lstrip('@').lower())
+
+    # 3. Extract @handles
     for m in re.finditer(r'@([a-zA-Z0-9._]+)', text_content):
         h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS:
+        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
             handles.append(h.lstrip('@').lower())
 
-    # 3. If no URLs or @handles were found, check if lines or comma-separated tokens are valid usernames
+    # 4. If no URLs or @handles were found, check if lines or comma-separated tokens are valid usernames
     if not handles:
         tokens = re.split(r'[\r\n,;|]+', text_content)
         for token in tokens:
             raw = token.strip().lstrip('@')
             if not raw or " " in raw or raw.startswith("http") or is_empty_or_placeholder(raw):
                 continue
-            if re.match(r'^[a-zA-Z0-9._]{3,30}$', raw) and raw.lower() not in INVALID_TERMS:
+            if re.match(r'^[a-zA-Z0-9._]{3,30}$', raw) and raw.lower() not in INVALID_TERMS and not raw.isdigit():
                 handles.append(raw.lower())
 
     # Deduplicate preserving order
@@ -320,11 +335,14 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                     # No IG link -> omit row completely
                     continue
 
-            summary["total_rows_scanned"] += 1
-
             target_text = ig_link_cell if not is_empty_or_placeholder(ig_link_cell) else ig_name_cell
             if "instagram.com" in yt_link_cell.lower():
                 target_text = f"{target_text}\n{yt_link_cell.strip()}"
+
+            if is_empty_or_placeholder(target_text):
+                continue
+
+            summary["total_rows_scanned"] += 1
 
             extracted_handles = extract_instagram_handles(target_text)
 
