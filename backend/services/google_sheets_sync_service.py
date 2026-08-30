@@ -7,9 +7,9 @@ import re
 import ssl
 import urllib.request
 import urllib.error
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
+from sqlalchemy import select
 
 from backend.models.scrape_profile import ScrapeProfile
 from backend.models.profile import Profile
@@ -105,15 +105,14 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     return result
 
 
-def fetch_tab_csv_sync(tab_info: Dict[str, str]) -> Tuple[Dict[str, str], str]:
-    gid = tab_info["gid"]
+def fetch_tab_csv_sync(gid: str) -> str:
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     )
     with urllib.request.urlopen(req, timeout=10) as response:
-        return tab_info, response.read().decode("utf-8", errors="replace")
+        return response.read().decode("utf-8", errors="replace")
 
 
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
@@ -130,13 +129,12 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     }
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=5) as response:
             data = json.loads(response.read().decode("utf-8"))
             user = data.get("data", {}).get("user")
             if user and user.get("id"):
                 return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
-            else:
-                return {"status": "DELETED", "user_id": None, "username": None}
+            return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
         if e.code in [404, 410, 400]:
             return {"status": "DELETED", "user_id": None, "username": None}
@@ -149,10 +147,10 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
     """
-    Checks multiple handles concurrently with high throughput.
+    Checks candidate handles concurrently with high concurrency (25 workers).
     """
     loop = asyncio.get_running_loop()
-    semaphore = asyncio.Semaphore(20)
+    semaphore = asyncio.Semaphore(25)
 
     async def check_one(h: str):
         async with semaphore:
@@ -173,42 +171,35 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[st
 
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
-    Fetches Grade A-E + Inactive tabs concurrently:
-    1. Skips rows where no Instagram link is present in the sheet.
-    2. Step 1: Checks Database first (Channel ID / Profile Handle History) -> Already Tracked vs Handle Changed.
-    3. Step 2: Checks live reachability -> Link Invalid (broken link) vs Channel Deleted (404/deleted) vs New Channel.
+    Ultra-fast parallel analyzer:
+    1. Downloads all 6 Google Sheet tabs in parallel (Grade A–E + Inactive).
+    2. Cross-references database Channel ID, profile history, and active scrape_profiles.
+    3. Concurrently verifies remaining candidate new channels via live Instagram check.
     """
-    import asyncio
-    
-    # 1. Load scrape_profiles
+    loop = asyncio.get_running_loop()
+
+    # Step 1: Query DB tables
     scrape_profiles_res = await db.execute(select(ScrapeProfile))
     all_scrape_profiles = scrape_profiles_res.scalars().all()
-    
-    sp_by_username: Dict[str, ScrapeProfile] = {
-        p.username.lower(): p for p in all_scrape_profiles if p.username
-    }
-    sp_by_ig_id: Dict[str, ScrapeProfile] = {
-        str(p.instagram_id): p for p in all_scrape_profiles if p.instagram_id
-    }
+    sp_by_username = {p.username.lower(): p for p in all_scrape_profiles if p.username}
+    sp_by_ig_id = {str(p.instagram_id): p for p in all_scrape_profiles if p.instagram_id}
 
-    # 2. Load profiles
     profiles_res = await db.execute(select(Profile))
     all_profiles = profiles_res.scalars().all()
-    profile_by_id: Dict[str, Profile] = {
-        str(p.id): p for p in all_profiles if p.id
-    }
-    profile_by_username: Dict[str, Profile] = {
-        p.username.lower(): p for p in all_profiles if p.username
-    }
+    profile_by_id = {str(p.id): p for p in all_profiles if p.id}
 
-    # 3. Load profile_handle_history
     history_res = await db.execute(select(ProfileHandleHistory))
     all_history = history_res.scalars().all()
-    history_to_pid: Dict[str, str] = {
-        h.handle.lower(): str(h.profile_id) for h in all_history if h.handle
-    }
+    history_to_pid = {h.handle.lower(): str(h.profile_id) for h in all_history if h.handle}
+
+    # Step 2: Parallel fetch ALL 6 Google Sheet tabs
+    csv_tasks = [loop.run_in_executor(None, fetch_tab_csv_sync, tab["gid"]) for tab in GRADE_TABS]
+    csv_results = await asyncio.gather(*csv_tasks, return_exceptions=True)
 
     raw_items: List[Dict[str, Any]] = []
+    seen_channel_keys = set()
+    candidate_handles_to_check = set()
+
     summary = {
         "total_rows_scanned": 0,
         "new_channels": 0,
@@ -218,61 +209,30 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
         "already_tracked": 0,
     }
 
-    seen_channel_keys = set()
-    candidate_handles_to_check = set()
-    loop = asyncio.get_running_loop()
-
-    # Fetch all 6 tabs in parallel for ultra-fast response
-    tab_tasks = [
-        loop.run_in_executor(None, fetch_tab_csv_sync, tab_info)
-        for tab_info in GRADE_TABS
-    ]
-    tab_results = await asyncio.gather(*tab_tasks, return_exceptions=True)
-
-    for res in tab_results:
-        if isinstance(res, Exception):
-            logger.error(f"Error fetching tab: {res}")
+    for idx, tab in enumerate(GRADE_TABS):
+        csv_text = csv_results[idx]
+        if isinstance(csv_text, Exception) or not isinstance(csv_text, str):
+            logger.error(f"Error fetching tab {tab['name']}: {csv_text}")
             continue
-        tab, csv_text = res
 
-        reader = csv.reader(io.StringIO(csv_text))
-        header_row = None
-        col_id = 0
-        col_name = 1
-        col_ig_name = 17
-        col_ig_link = 18
-        col_yt_link = 14
+        reader = list(csv.reader(io.StringIO(csv_text)))
+        header_idx = next((i for i, row in enumerate(reader) if "ID" in row and ("Instagram" in "".join(row) or "Channel" in "".join(row) or "Full Name" in row)), -1)
+        if header_idx == -1:
+            continue
 
-        for row_idx, row in enumerate(reader):
-            if not row:
+        header = reader[header_idx]
+        col_id = next((i for i, c in enumerate(header) if c.strip().lower() == "id"), 0)
+        col_name = next((i for i, c in enumerate(header) if "full name" in c.strip().lower()), 1)
+        col_ig_name = next((i for i, c in enumerate(header) if "instagram channel name" in c.strip().lower()), 17)
+        col_ig_link = next((i for i, c in enumerate(header) if "instagram channel link" in c.strip().lower()), 18)
+        col_yt_link = next((i for i, c in enumerate(header) if "channel link" in c.strip().lower() and "instagram" not in c.strip().lower()), 14)
+
+        for row in reader[header_idx+1:]:
+            if not row or len(row) <= col_id or not row[col_id].strip().upper().startswith("SWW"):
                 continue
 
-            if "ID" in row and ("Instagram" in "".join(row) or "Channel" in "".join(row) or "Full Name" in row):
-                header_row = row
-                for idx, cell in enumerate(row):
-                    cell_clean = cell.strip().lower()
-                    if cell_clean == "id":
-                        col_id = idx
-                    elif "full name" in cell_clean:
-                        col_name = idx
-                    elif "instagram channel name" in cell_clean:
-                        col_ig_name = idx
-                    elif "instagram channel link" in cell_clean:
-                        col_ig_link = idx
-                    elif "channel link" in cell_clean and "instagram" not in cell_clean:
-                        col_yt_link = idx
-                continue
-
-            if not header_row:
-                continue
-
-            member_id = row[col_id].strip() if len(row) > col_id else ""
-            if not member_id or not member_id.upper().startswith("SWW"):
-                continue
-
-            summary["total_rows_scanned"] += 1
+            member_id = row[col_id].strip()
             creator_name = row[col_name].strip() if len(row) > col_name else ""
-            
             ig_link_cell = row[col_ig_link].strip() if len(row) > col_ig_link else ""
             ig_name_cell = row[col_ig_name].strip() if len(row) > col_ig_name else ""
             yt_link_cell = row[col_yt_link].strip() if len(row) > col_yt_link else ""
@@ -280,10 +240,11 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
             # Check if any Instagram link/handle was provided
             if is_empty_or_placeholder(ig_link_cell) and is_empty_or_placeholder(ig_name_cell):
                 if "instagram.com" not in yt_link_cell.lower():
-                    # No IG channel provided in sheet -> Completely omit from Google Sync!
+                    # No IG link -> omit row completely
                     continue
 
-            # Prioritize link column, else name column
+            summary["total_rows_scanned"] += 1
+
             target_text = ig_link_cell if not is_empty_or_placeholder(ig_link_cell) else ig_name_cell
             if "instagram.com" in yt_link_cell.lower():
                 target_text = f"{target_text}\n{yt_link_cell.strip()}"
@@ -292,12 +253,10 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
             # If ig_name has an extra specific handle
             if not is_empty_or_placeholder(ig_name_cell) and target_text != ig_name_cell:
-                extra_handles = extract_instagram_handles(ig_name_cell)
-                for eh in extra_handles:
+                for eh in extract_instagram_handles(ig_name_cell):
                     if eh not in extracted_handles:
                         extracted_handles.append(eh)
 
-            # If an Instagram link was attempted, but the format is broken / invalid -> Link Invalid
             if not extracted_handles:
                 raw_display = ig_link_cell or ig_name_cell or "Malformed link"
                 raw_items.append({
@@ -317,7 +276,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                 summary["link_invalid"] += 1
                 continue
 
-            # Process each valid handle
             for handle in extracted_handles:
                 unique_key = f"{member_id}_{handle}"
                 if unique_key in seen_channel_keys:
@@ -326,13 +284,11 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
                 instagram_url = f"https://www.instagram.com/{handle}/"
 
-                # STEP 1: Database Check (Check Channel ID & Handle History first)
+                # Check Channel ID / Profile History first
                 pid = history_to_pid.get(handle)
                 prof = profile_by_id.get(pid) if pid else None
 
-                # Check if handle matches an existing Channel ID where the primary username is different
                 if prof and prof.username and prof.username.lower() != handle:
-                    # CASE 2: Handle Changed!
                     raw_items.append({
                         "channel_id": member_id,
                         "creator_name": creator_name,
@@ -350,7 +306,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                     })
                     summary["handle_changed"] += 1
                 elif handle in sp_by_username or (pid and pid in profile_by_id):
-                    # Already tracked with matching handle
                     raw_items.append({
                         "channel_id": member_id,
                         "creator_name": creator_name,
@@ -367,7 +322,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                     })
                     summary["already_tracked"] += 1
                 else:
-                    # Candidate new channel -> queue for live reachability check
                     candidate_handles_to_check.add(handle)
                     raw_items.append({
                         "channel_id": member_id,
@@ -384,7 +338,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         "can_add": True,
                     })
 
-    # STEP 2: Verify candidate new channels live for deleted / invalid / valid / handle changed
+    # Step 3: Fast concurrent verification of candidate handles
     if candidate_handles_to_check:
         live_status_map = await check_handles_live_concurrent(list(candidate_handles_to_check))
     else:
@@ -411,7 +365,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                 item["can_add"] = False
                 summary["link_invalid"] += 1
             else:
-                # Check if returned user.id belongs to an existing channel in DB under different handle
                 matched_prof = profile_by_id.get(user_id) if user_id else None
                 matched_sp = sp_by_ig_id.get(user_id) if user_id else None
 
