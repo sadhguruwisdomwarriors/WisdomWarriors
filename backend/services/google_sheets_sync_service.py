@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import gzip
 import io
 import json
 import logging
@@ -136,14 +137,19 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
             "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
         }
     )
     try:
         with urllib.request.urlopen(req, context=ssl_context, timeout=6) as response:
-            html = response.read().decode("utf-8", errors="ignore")
-            has_og_title = '<meta property="og:title"' in html or '<meta name="og:title"' in html
-            has_og_desc = '<meta property="og:description"' in html or '<meta name="og:description"' in html
-            is_404_text = "Page Not Found" in html or "Sorry, this page isn't available" in html
+            raw_bytes = response.read()
+            if raw_bytes.startswith(b'\x1f\x8b'):
+                raw_bytes = gzip.decompress(raw_bytes)
+            
+            html = raw_bytes.decode("utf-8", errors="ignore").lower()
+            has_og_title = 'property="og:title"' in html or 'name="og:title"' in html or '<meta property="og:title"' in html
+            has_og_desc = 'property="og:description"' in html or 'name="og:description"' in html
+            is_404_text = "page not found" in html or "sorry, this page isn't available" in html
 
             if (has_og_title or has_og_desc) and not is_404_text:
                 return {"status": "VALID", "user_id": None, "username": handle}
