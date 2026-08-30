@@ -182,7 +182,6 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     scrape_profiles_res = await db.execute(select(ScrapeProfile))
     all_scrape_profiles = scrape_profiles_res.scalars().all()
     sp_by_username = {p.username.lower(): p for p in all_scrape_profiles if p.username}
-    sp_by_ig_id = {str(p.instagram_id): p for p in all_scrape_profiles if p.instagram_id}
 
     profiles_res = await db.execute(select(Profile))
     all_profiles = profiles_res.scalars().all()
@@ -366,20 +365,12 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                 summary["link_invalid"] += 1
             else:
                 matched_prof = profile_by_id.get(user_id) if user_id else None
-                matched_sp = sp_by_ig_id.get(user_id) if user_id else None
 
                 if matched_prof and matched_prof.username and matched_prof.username.lower() != h.lower():
                     item["case_type"] = "HANDLE_CHANGED"
                     item["status_label"] = "Handle Changed"
                     item["status_color"] = "amber"
                     item["old_username"] = matched_prof.username
-                    item["can_add"] = False
-                    summary["handle_changed"] += 1
-                elif matched_sp and matched_sp.username and matched_sp.username.lower() != h.lower():
-                    item["case_type"] = "HANDLE_CHANGED"
-                    item["status_label"] = "Handle Changed"
-                    item["status_color"] = "amber"
-                    item["old_username"] = matched_sp.username
                     item["can_add"] = False
                     summary["handle_changed"] += 1
                 else:
