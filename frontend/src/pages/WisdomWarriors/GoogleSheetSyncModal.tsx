@@ -13,7 +13,8 @@ import {
   FileSpreadsheet,
   Link2Off,
   UserX,
-  AlertOctagon
+  AlertOctagon,
+  ArrowRight
 } from "lucide-react"
 import { 
   fetchGoogleSheetsSyncPreview, 
@@ -42,7 +43,7 @@ const GRADE_TABS: Array<{ id: GradeTab; label: string; tabName: string }> = [
 export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
   const queryClient = useQueryClient()
   const [selectedGradeTab, setSelectedGradeTab] = useState<GradeTab>("all")
-  const [activeStatusTab, setActiveStatusTab] = useState<StatusTab>("NEW_CHANNEL")
+  const [activeStatusTab, setActiveStatusTab] = useState<StatusTab>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set())
 
@@ -238,7 +239,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           </div>
         </div>
 
-        {/* Primary Grade Tab Navigation (Including Inactive Tab) */}
+        {/* Primary Grade Tab Navigation */}
         <div className="flex items-center gap-2 px-5 pt-3 pb-0 bg-gray-950/80 border-b border-gray-800 overflow-x-auto">
           {GRADE_TABS.map(tab => {
             const isSelected = selectedGradeTab === tab.id
@@ -480,7 +481,21 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
 
                         {/* Instagram Handle / Link */}
                         <td className="p-3">
-                          {item.username ? (
+                          {item.case_type === "HANDLE_CHANGED" && (item as any).old_username ? (
+                            <div className="flex items-center gap-1.5 font-medium text-xs">
+                              <span className="text-gray-400 line-through">@{(item as any).old_username}</span>
+                              <ArrowRight className="w-3 h-3 text-amber-400" />
+                              <a
+                                href={item.instagram_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-amber-400 hover:text-amber-300 font-semibold inline-flex items-center gap-1"
+                              >
+                                @{item.username}
+                                <ExternalLink className="w-3 h-3 opacity-60" />
+                              </a>
+                            </div>
+                          ) : item.username ? (
                             <a
                               href={item.instagram_url}
                               target="_blank"

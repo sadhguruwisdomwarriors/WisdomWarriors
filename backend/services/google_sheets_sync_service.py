@@ -115,10 +115,10 @@ def fetch_tab_csv_sync(gid: str) -> str:
         return response.read().decode("utf-8", errors="replace")
 
 
-def check_instagram_handle_live_sync(handle: str) -> str:
+def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
     """
     Synchronously verifies whether an Instagram account is accessible, deleted/404, or invalid.
-    Returns: "VALID" | "DELETED" | "INVALID"
+    Returns: {"status": "VALID" | "DELETED" | "INVALID", "user_id": Optional[str], "username": Optional[str]}
     """
     url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
     headers = {
@@ -133,20 +133,20 @@ def check_instagram_handle_live_sync(handle: str) -> str:
             data = json.loads(response.read().decode("utf-8"))
             user = data.get("data", {}).get("user")
             if user and user.get("id"):
-                return "VALID"
+                return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
             else:
-                return "DELETED"
+                return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
         if e.code in [404, 410, 400]:
-            return "DELETED"
-        return "DELETED"
+            return {"status": "DELETED", "user_id": None, "username": None}
+        return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.URLError:
-        return "INVALID"
+        return {"status": "INVALID", "user_id": None, "username": None}
     except Exception:
-        return "DELETED"
+        return {"status": "DELETED", "user_id": None, "username": None}
 
 
-async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, str]:
+async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     Checks multiple handles concurrently with controlled concurrency.
     """
@@ -173,17 +173,38 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, str]:
 async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     """
     Fetches Grade A-E + Inactive tabs:
-    1. Skips rows where no Instagram link is present in the sheet (never shows in Link Invalid).
-    2. Step 1: Checks Database first (Profile ID / Username) -> Already Tracked / Handle Changed.
+    1. Skips rows where no Instagram link is present in the sheet.
+    2. Step 1: Checks Database first (Channel ID / Profile Handle History) -> Already Tracked vs Handle Changed.
     3. Step 2: Checks live reachability -> Link Invalid (broken link) vs Channel Deleted (404/deleted) vs New Channel.
     """
     import asyncio
     
+    # 1. Load scrape_profiles
     scrape_profiles_res = await db.execute(select(ScrapeProfile))
     all_scrape_profiles = scrape_profiles_res.scalars().all()
     
-    existing_handles_map: Dict[str, ScrapeProfile] = {
+    sp_by_username: Dict[str, ScrapeProfile] = {
         p.username.lower(): p for p in all_scrape_profiles if p.username
+    }
+    sp_by_ig_id: Dict[str, ScrapeProfile] = {
+        str(p.instagram_id): p for p in all_scrape_profiles if p.instagram_id
+    }
+
+    # 2. Load profiles
+    profiles_res = await db.execute(select(Profile))
+    all_profiles = profiles_res.scalars().all()
+    profile_by_id: Dict[str, Profile] = {
+        str(p.id): p for p in all_profiles if p.id
+    }
+    profile_by_username: Dict[str, Profile] = {
+        p.username.lower(): p for p in all_profiles if p.username
+    }
+
+    # 3. Load profile_handle_history
+    history_res = await db.execute(select(ProfileHandleHistory))
+    all_history = history_res.scalars().all()
+    history_to_pid: Dict[str, str] = {
+        h.handle.lower(): str(h.profile_id) for h in all_history if h.handle
     }
 
     raw_items: List[Dict[str, Any]] = []
@@ -298,8 +319,31 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
 
                 instagram_url = f"https://www.instagram.com/{handle}/"
 
-                # STEP 1: Database Check
-                if handle in existing_handles_map:
+                # STEP 1: Database Check (Check Channel ID & Handle History first)
+                pid = history_to_pid.get(handle)
+                prof = profile_by_id.get(pid) if pid else None
+
+                # Check if handle matches an existing Channel ID where the primary username is different
+                if prof and prof.username and prof.username.lower() != handle:
+                    # CASE 2: Handle Changed!
+                    raw_items.append({
+                        "channel_id": member_id,
+                        "creator_name": creator_name,
+                        "username": handle,
+                        "old_username": prof.username,
+                        "instagram_url": instagram_url,
+                        "raw_input": ig_link_cell or handle,
+                        "grade": tab["grade"],
+                        "category": "Dedicated",
+                        "tab_name": tab["name"],
+                        "case_type": "HANDLE_CHANGED",
+                        "status_label": "Handle Changed",
+                        "status_color": "amber",
+                        "can_add": False,
+                    })
+                    summary["handle_changed"] += 1
+                elif handle in sp_by_username or (pid and pid in profile_by_id):
+                    # Already tracked with matching handle
                     raw_items.append({
                         "channel_id": member_id,
                         "creator_name": creator_name,
@@ -333,7 +377,7 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                         "can_add": True,
                     })
 
-    # STEP 2: Verify candidate new channels live for deleted / invalid / valid
+    # STEP 2: Verify candidate new channels live for deleted / invalid / valid / handle changed
     if candidate_handles_to_check:
         live_status_map = await check_handles_live_concurrent(list(candidate_handles_to_check))
     else:
@@ -343,7 +387,10 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
     for item in raw_items:
         if item["case_type"] == "PENDING_CHECK":
             h = item["username"]
-            st = live_status_map.get(h, "VALID")
+            res_obj = live_status_map.get(h, {"status": "VALID", "user_id": None, "username": None})
+            st = res_obj.get("status", "VALID")
+            user_id = res_obj.get("user_id")
+
             if st == "DELETED":
                 item["case_type"] = "CHANNEL_DELETED"
                 item["status_label"] = "Channel Deleted / Not Found"
@@ -357,11 +404,30 @@ async def analyze_google_sheets(db: AsyncSession) -> Dict[str, Any]:
                 item["can_add"] = False
                 summary["link_invalid"] += 1
             else:
-                item["case_type"] = "NEW_CHANNEL"
-                item["status_label"] = "New Channel"
-                item["status_color"] = "green"
-                item["can_add"] = True
-                summary["new_channels"] += 1
+                # Check if returned user.id belongs to an existing channel in DB under different handle
+                matched_prof = profile_by_id.get(user_id) if user_id else None
+                matched_sp = sp_by_ig_id.get(user_id) if user_id else None
+
+                if matched_prof and matched_prof.username and matched_prof.username.lower() != h.lower():
+                    item["case_type"] = "HANDLE_CHANGED"
+                    item["status_label"] = "Handle Changed"
+                    item["status_color"] = "amber"
+                    item["old_username"] = matched_prof.username
+                    item["can_add"] = False
+                    summary["handle_changed"] += 1
+                elif matched_sp and matched_sp.username and matched_sp.username.lower() != h.lower():
+                    item["case_type"] = "HANDLE_CHANGED"
+                    item["status_label"] = "Handle Changed"
+                    item["status_color"] = "amber"
+                    item["old_username"] = matched_sp.username
+                    item["can_add"] = False
+                    summary["handle_changed"] += 1
+                else:
+                    item["case_type"] = "NEW_CHANNEL"
+                    item["status_label"] = "New Channel"
+                    item["status_color"] = "green"
+                    item["can_add"] = True
+                    summary["new_channels"] += 1
         final_items.append(item)
 
     return {
