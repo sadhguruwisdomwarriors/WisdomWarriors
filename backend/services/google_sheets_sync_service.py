@@ -88,6 +88,16 @@ def is_empty_or_placeholder(text_content: str) -> bool:
     return any(cleaned == phrase or cleaned.startswith(phrase + " ") or cleaned.startswith(phrase + "(") or cleaned.startswith(phrase + " -") for phrase in SKIP_PHRASES)
 
 
+def is_valid_ig_handle(h: str) -> bool:
+    if not h or len(h) < 3 or len(h) > 30:
+        return False
+    if h.lower() in INVALID_TERMS or h.lower().startswith("share"):
+        return False
+    if h.isdigit() or not re.search(r'[a-zA-Z]', h):
+        return False
+    return bool(re.match(r'^[a-zA-Z0-9._]{3,30}$', h))
+
+
 def extract_instagram_handles(text_content: str) -> List[str]:
     """
     Extracts all valid Instagram handles from a string that may contain multiple links,
@@ -102,24 +112,24 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     # 1. Direct Regex for all Instagram URLs anywhere in the string
     for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
         h = m.group(1).strip().rstrip('/')
-        if not is_empty_or_placeholder(h) and not h.lower().startswith("share") and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
+        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
     # 2. Freeform patterns like "Insta - username", "Instagram - username", "Insta : username"
     for m in re.finditer(r'(?:insta|instagram)\s*(?:-|:)\s*([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
         h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
+        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
     for m in re.finditer(r'([a-zA-Z0-9._]+)\s*(?:-|:)\s*(?:insta|instagram)', text_content, re.IGNORECASE):
         h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
+        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
     # 3. Extract @handles
     for m in re.finditer(r'@([a-zA-Z0-9._]+)', text_content):
         h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and h.lower() not in INVALID_TERMS and not h.isdigit() and len(h) >= 3:
+        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
     # 4. If no URLs or @handles were found, check if lines or comma-separated tokens are valid usernames
@@ -129,7 +139,7 @@ def extract_instagram_handles(text_content: str) -> List[str]:
             raw = token.strip().lstrip('@')
             if not raw or " " in raw or raw.startswith("http") or is_empty_or_placeholder(raw):
                 continue
-            if re.match(r'^[a-zA-Z0-9._]{3,30}$', raw) and raw.lower() not in INVALID_TERMS and not raw.isdigit():
+            if is_valid_ig_handle(raw):
                 handles.append(raw.lower())
 
     # Deduplicate preserving order
