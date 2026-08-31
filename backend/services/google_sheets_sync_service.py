@@ -103,15 +103,15 @@ def extract_instagram_handles(text_content: str) -> List[str]:
     STRICT Instagram-Only Extractor:
     1. Pre-cleans text by stripping non-Instagram URLs (YouTube, LinkedIn, Twitter/X, Facebook).
     2. Extracts handles exclusively from valid instagram.com URLs.
-    3. If no Instagram URL is found, extracts from explicit 'Instagram - handle' / 'Insta: handle' labels.
-    4. Never extracts from YouTube, LinkedIn, or arbitrary text.
+    3. If no Instagram URL is found, extracts from explicit @handle ONLY if the cell explicitly refers to Instagram.
+    4. Never extracts from YouTube, LinkedIn, Twitter, or arbitrary freeform text.
     """
     if not text_content or is_empty_or_placeholder(text_content):
         return []
 
     text_content = text_content.replace("\\n", "\n").replace("\\r", "")
 
-    # Strip out non-Instagram URLs completely to prevent false matching
+    # Strip out non-Instagram URLs completely
     cleaned_text = re.sub(
         r'https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|linkedin\.com|twitter\.com|x\.com|facebook\.com|fb\.com)[^\s\n\r,;]*',
         ' ',
@@ -121,25 +121,13 @@ def extract_instagram_handles(text_content: str) -> List[str]:
 
     handles = []
 
-    # Priority 1: Direct Regex for all Instagram URLs
+    # Priority 1: Direct Regex for all Instagram URLs (e.g. instagram.com/{handle})
     for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', cleaned_text, re.IGNORECASE):
         h = m.group(1).strip().rstrip('/')
         if is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
-    # Priority 2: If NO Instagram URL was found, check for explicit Insta label
-    if not handles:
-        for m in re.finditer(r'(?:insta|instagram)\s*(?:-|:)\s*([a-zA-Z0-9._]+)', cleaned_text, re.IGNORECASE):
-            h = m.group(1).strip()
-            if is_valid_ig_handle(h):
-                handles.append(h.lstrip('@').lower())
-
-        for m in re.finditer(r'([a-zA-Z0-9._]+)\s*(?:-|:)\s*(?:insta|instagram)', cleaned_text, re.IGNORECASE):
-            h = m.group(1).strip()
-            if is_valid_ig_handle(h):
-                handles.append(h.lstrip('@').lower())
-
-    # Priority 3: @handle ONLY IF the cell explicitly refers to Instagram
+    # Priority 2: If NO Instagram URL was found, check for explicit @handle only if cell mentions Instagram
     if not handles and ("instagram" in text_content.lower() or "insta" in text_content.lower()):
         for m in re.finditer(r'@([a-zA-Z0-9._]+)', cleaned_text):
             h = m.group(1).strip()
