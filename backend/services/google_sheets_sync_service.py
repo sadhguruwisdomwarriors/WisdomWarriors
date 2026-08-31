@@ -53,8 +53,7 @@ SKIP_PHRASES = {
     "yet to create channel", "in module 2", "i only have my personal ac",
     "i only have my personal ac.", "i do not have any social media accounts", "india and aligarh",
     "i'm creating new channel", "i am creating new channel", "creating new channel",
-    "yet to create channel - in module 2", "yet to create channel - in module 2",
-    "no channel link", "no link available", "not available"
+    "yet to create channel - in module 2", "no channel link", "no link available", "not available"
 }
 
 VERIFIED_DELETED_OR_INVALID = {
@@ -91,56 +90,61 @@ def is_empty_or_placeholder(text_content: str) -> bool:
 def is_valid_ig_handle(h: str) -> bool:
     if not h or len(h) < 3 or len(h) > 30:
         return False
-    if h.lower() in INVALID_TERMS or h.lower().startswith("share"):
+    clean = h.strip().lower().lstrip('@')
+    if clean in INVALID_TERMS or clean.startswith("share"):
         return False
-    if h.isdigit() or not re.search(r'[a-zA-Z]', h):
+    if clean.isdigit() or not re.search(r'[a-zA-Z]', clean):
         return False
-    return bool(re.match(r'^[a-zA-Z0-9._]{3,30}$', h))
+    return bool(re.match(r'^[a-zA-Z0-9._]{3,30}$', clean))
 
 
 def extract_instagram_handles(text_content: str) -> List[str]:
     """
-    Extracts all valid Instagram handles from a string that may contain multiple links,
-    handles, or freeform text across multiple lines or comma-separated values.
+    STRICT Instagram-Only Extractor:
+    1. Pre-cleans text by stripping non-Instagram URLs (YouTube, LinkedIn, Twitter/X, Facebook).
+    2. Extracts handles exclusively from valid instagram.com URLs.
+    3. If no Instagram URL is found, extracts from explicit 'Instagram - handle' / 'Insta: handle' labels.
+    4. Never extracts from YouTube, LinkedIn, or arbitrary text.
     """
     if not text_content or is_empty_or_placeholder(text_content):
         return []
 
     text_content = text_content.replace("\\n", "\n").replace("\\r", "")
+
+    # Strip out non-Instagram URLs completely to prevent false matching
+    cleaned_text = re.sub(
+        r'https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|linkedin\.com|twitter\.com|x\.com|facebook\.com|fb\.com)[^\s\n\r,;]*',
+        ' ',
+        text_content,
+        flags=re.IGNORECASE
+    )
+
     handles = []
 
-    # 1. Direct Regex for all Instagram URLs anywhere in the string
-    for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
+    # Priority 1: Direct Regex for all Instagram URLs
+    for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', cleaned_text, re.IGNORECASE):
         h = m.group(1).strip().rstrip('/')
-        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
+        if is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
-    # 2. Freeform patterns like "Insta - username", "Instagram - username", "Insta : username"
-    for m in re.finditer(r'(?:insta|instagram)\s*(?:-|:)\s*([a-zA-Z0-9._]+)', text_content, re.IGNORECASE):
-        h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
-            handles.append(h.lstrip('@').lower())
-
-    for m in re.finditer(r'([a-zA-Z0-9._]+)\s*(?:-|:)\s*(?:insta|instagram)', text_content, re.IGNORECASE):
-        h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
-            handles.append(h.lstrip('@').lower())
-
-    # 3. Extract @handles
-    for m in re.finditer(r'@([a-zA-Z0-9._]+)', text_content):
-        h = m.group(1).strip()
-        if not is_empty_or_placeholder(h) and is_valid_ig_handle(h):
-            handles.append(h.lstrip('@').lower())
-
-    # 4. If no URLs or @handles were found, check if lines or comma-separated tokens are valid usernames
+    # Priority 2: If NO Instagram URL was found, check for explicit Insta label
     if not handles:
-        tokens = re.split(r'[\r\n,;|]+', text_content)
-        for token in tokens:
-            raw = token.strip().lstrip('@')
-            if not raw or " " in raw or raw.startswith("http") or is_empty_or_placeholder(raw):
-                continue
-            if is_valid_ig_handle(raw):
-                handles.append(raw.lower())
+        for m in re.finditer(r'(?:insta|instagram)\s*(?:-|:)\s*([a-zA-Z0-9._]+)', cleaned_text, re.IGNORECASE):
+            h = m.group(1).strip()
+            if is_valid_ig_handle(h):
+                handles.append(h.lstrip('@').lower())
+
+        for m in re.finditer(r'([a-zA-Z0-9._]+)\s*(?:-|:)\s*(?:insta|instagram)', cleaned_text, re.IGNORECASE):
+            h = m.group(1).strip()
+            if is_valid_ig_handle(h):
+                handles.append(h.lstrip('@').lower())
+
+    # Priority 3: @handle ONLY IF the cell explicitly refers to Instagram
+    if not handles and ("instagram" in text_content.lower() or "insta" in text_content.lower()):
+        for m in re.finditer(r'@([a-zA-Z0-9._]+)', cleaned_text):
+            h = m.group(1).strip()
+            if is_valid_ig_handle(h):
+                handles.append(h.lstrip('@').lower())
 
     # Deduplicate preserving order
     seen = set()
@@ -294,7 +298,6 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
         col_name = 1
         col_ig_name = -1
         col_ig_link = -1
-        col_yt_link = -1
         col_grade = -1
 
         for idx_c, cell in enumerate(header):
@@ -308,8 +311,6 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                 col_ig_name = idx_c
             elif "instagram channel link" in cell_clean or "channel links" in cell_clean or cell_clean == "links":
                 col_ig_link = idx_c
-            elif "channel link" in cell_clean and "instagram" not in cell_clean:
-                col_yt_link = idx_c
             elif cell_clean == "grade":
                 col_grade = idx_c
 
@@ -329,7 +330,6 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
             creator_name = row[col_name].strip() if (col_name >= 0 and len(row) > col_name) else ""
             ig_link_cell = row[col_ig_link].strip() if (col_ig_link >= 0 and len(row) > col_ig_link) else ""
             ig_name_cell = row[col_ig_name].strip() if (col_ig_name >= 0 and len(row) > col_ig_name) else ""
-            yt_link_cell = row[col_yt_link].strip() if (col_yt_link >= 0 and len(row) > col_yt_link) else ""
             
             row_grade = tab["grade"]
             if col_grade >= 0 and len(row) > col_grade and row[col_grade].strip():
@@ -341,18 +341,12 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
 
             # Check if any Instagram link/handle was provided
             if is_empty_or_placeholder(ig_link_cell) and is_empty_or_placeholder(ig_name_cell):
-                if "instagram.com" not in yt_link_cell.lower():
-                    # No IG link -> omit row completely
-                    continue
+                continue
 
             target_text = ig_link_cell if not is_empty_or_placeholder(ig_link_cell) else ig_name_cell
-            if "instagram.com" in yt_link_cell.lower():
-                target_text = f"{target_text}\n{yt_link_cell.strip()}"
 
             if is_empty_or_placeholder(target_text):
                 continue
-
-            summary["total_rows_scanned"] += 1
 
             extracted_handles = extract_instagram_handles(target_text)
 
@@ -363,23 +357,27 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                         extracted_handles.append(eh)
 
             if not extracted_handles:
-                raw_display = ig_link_cell or ig_name_cell or "Malformed link"
-                raw_items.append({
-                    "channel_id": member_id,
-                    "creator_name": creator_name,
-                    "username": "",
-                    "instagram_url": "",
-                    "raw_input": raw_display,
-                    "grade": row_grade,
-                    "category": default_category,
-                    "tab_name": tab["name"],
-                    "case_type": "LINK_INVALID",
-                    "status_label": "Link Invalid",
-                    "status_color": "red",
-                    "can_add": False,
-                })
-                summary["link_invalid"] += 1
+                # If there's no Instagram link at all, skip non-Instagram rows
+                if "instagram" in target_text.lower() or "insta" in target_text.lower():
+                    raw_display = ig_link_cell or ig_name_cell or "Malformed link"
+                    raw_items.append({
+                        "channel_id": member_id,
+                        "creator_name": creator_name,
+                        "username": "",
+                        "instagram_url": "",
+                        "raw_input": raw_display,
+                        "grade": row_grade,
+                        "category": default_category,
+                        "tab_name": tab["name"],
+                        "case_type": "LINK_INVALID",
+                        "status_label": "Link Invalid",
+                        "status_color": "red",
+                        "can_add": False,
+                    })
+                    summary["link_invalid"] += 1
                 continue
+
+            summary["total_rows_scanned"] += 1
 
             for handle in extracted_handles:
                 unique_key = f"{member_id}_{handle}"
