@@ -114,7 +114,7 @@ export interface GoogleSheetsSyncResponse {
   items: GoogleSheetsSyncItem[]
 }
 
-export const fetchGoogleSheetsSyncPreview = (source: "dedicated" | "ihi" = "dedicated"): Promise<GoogleSheetsSyncResponse> =>
+export const fetchGoogleSheetsSyncPreview = (source: "dedicated" | "ihi" | "leads" = "dedicated"): Promise<GoogleSheetsSyncResponse> =>
   fetch(`${API_URL}/api/scrape/wisdom-warriors/sync/preview?source=${source}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

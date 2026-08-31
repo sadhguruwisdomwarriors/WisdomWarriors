@@ -29,7 +29,7 @@ interface Props {
   onClose: () => void
 }
 
-type SyncSource = "dedicated" | "ihi"
+type SyncSource = "dedicated" | "ihi" | "leads"
 type StatusTab = "all" | "NEW_CHANNEL" | "HANDLE_CHANGED" | "BROKEN_OR_DELETED" | "LINK_INVALID" | "CHANNEL_DELETED" | "ALREADY_TRACKED"
 
 export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
@@ -228,7 +228,9 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
                 <p className="text-xs text-gray-400">
                   {selectedSource === "dedicated" 
                     ? "Dedicated Master Database (Grades A–E & Inactive) • Missing links filtered out"
-                    : "IHI Master Database (In-house Influencers) • Missing links filtered out"}
+                    : selectedSource === "ihi"
+                    ? "IHI Master Database (In-house Influencers) • Missing links filtered out"
+                    : "Micro Unit LEADS Database (LEADS-190) • Missing links filtered out"}
                 </p>
               </div>
             </div>
@@ -252,7 +254,7 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
           </div>
         </div>
 
-        {/* Database Source Switcher (Dedicated vs IHI) */}
+        {/* Database Source Switcher (Dedicated vs IHI vs Leads) */}
         <div className="flex items-center gap-3 px-5 py-2.5 bg-gray-950/90 border-b border-gray-800">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5 text-purple-400" /> Database:
@@ -277,6 +279,16 @@ export function GoogleSheetSyncModal({ isOpen, onClose }: Props) {
               }`}
             >
               <Users className="w-3.5 h-3.5" /> IHI Master (In-house)
+            </button>
+            <button
+              onClick={() => handleSourceChange("leads")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                selectedSource === "leads"
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-950/50"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> Micro Unit LEADS
             </button>
           </div>
         </div>

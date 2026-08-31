@@ -33,6 +33,11 @@ IHI_TABS = [
     {"name": "IHI Master", "gid": "1922340728", "grade": "IHI"},
 ]
 
+LEADS_SPREADSHEET_ID = "1d6kSnXZShaItpj5IJvntzimUgnX7BzwMTzy7GPD4o1Q"
+LEADS_TABS = [
+    {"name": "LEADS-190", "gid": "0", "grade": "Leads"},
+]
+
 INVALID_TERMS = {
     "na", "n/a", "nil", "none", "not created", "not yet", "not yet made",
     "work in progress", "don't have any", "dont have any", "no", "-", "--",
@@ -76,9 +81,6 @@ ssl_context.verify_mode = ssl.CERT_NONE
 
 
 def is_empty_or_placeholder(text_content: str) -> bool:
-    """
-    Checks if a cell is empty or contains placeholder / skip phrases.
-    """
     if not text_content:
         return True
     cleaned = text_content.strip().lower()
@@ -91,7 +93,7 @@ def is_valid_ig_handle(h: str) -> bool:
     if not h or len(h) < 3 or len(h) > 30:
         return False
     clean = h.strip().lower().lstrip('@')
-    if clean in INVALID_TERMS or clean.startswith("share"):
+    if clean in INVALID_TERMS or clean.startswith("share") or clean in ["reel", "p", "stories", "tv"]:
         return False
     if clean.isdigit() or not re.search(r'[a-zA-Z]', clean):
         return False
@@ -100,18 +102,13 @@ def is_valid_ig_handle(h: str) -> bool:
 
 def extract_instagram_handles(text_content: str) -> List[str]:
     """
-    STRICT Instagram-Only Extractor:
-    1. Pre-cleans text by stripping non-Instagram URLs (YouTube, LinkedIn, Twitter/X, Facebook).
-    2. Extracts handles exclusively from valid instagram.com URLs.
-    3. If no Instagram URL is found, extracts from explicit @handle ONLY if the cell explicitly refers to Instagram.
-    4. Never extracts from YouTube, LinkedIn, Twitter, or arbitrary freeform text.
+    STRICT Instagram-Only Extractor
     """
     if not text_content or is_empty_or_placeholder(text_content):
         return []
 
     text_content = text_content.replace("\\n", "\n").replace("\\r", "")
 
-    # Strip out non-Instagram URLs completely
     cleaned_text = re.sub(
         r'https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|linkedin\.com|twitter\.com|x\.com|facebook\.com|fb\.com)[^\s\n\r,;]*',
         ' ',
@@ -121,20 +118,19 @@ def extract_instagram_handles(text_content: str) -> List[str]:
 
     handles = []
 
-    # Priority 1: Direct Regex for all Instagram URLs (e.g. instagram.com/{handle})
+    # 1. Instagram URLs
     for m in re.finditer(r'(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]+)', cleaned_text, re.IGNORECASE):
         h = m.group(1).strip().rstrip('/')
         if is_valid_ig_handle(h):
             handles.append(h.lstrip('@').lower())
 
-    # Priority 2: If NO Instagram URL was found, check for explicit @handle only if cell mentions Instagram
-    if not handles and ("instagram" in text_content.lower() or "insta" in text_content.lower()):
+    # 2. Explicit @handle if cell mentions Instagram
+    if not handles and ("instagram" in text_content.lower() or "insta" in text_content.lower() or text_content.startswith("@")):
         for m in re.finditer(r'@([a-zA-Z0-9._]+)', cleaned_text):
             h = m.group(1).strip()
             if is_valid_ig_handle(h):
                 handles.append(h.lstrip('@').lower())
 
-    # Deduplicate preserving order
     seen = set()
     result = []
     for h in handles:
@@ -155,11 +151,6 @@ def fetch_tab_csv_sync(spreadsheet_id: str, gid: str) -> str:
 
 
 def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
-    """
-    Robust Reachability Verification:
-    - Known deleted/invalid handles return DELETED immediately.
-    - Live Instagram API check identifies 404s/deleted vs active accounts.
-    """
     clean_h = handle.strip().lower().lstrip('@')
     if clean_h in VERIFIED_DELETED_OR_INVALID:
         return {"status": "DELETED", "user_id": None, "username": None}
@@ -181,10 +172,8 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
                 return {"status": "VALID", "user_id": str(user.get("id")), "username": user.get("username")}
             return {"status": "DELETED", "user_id": None, "username": None}
     except urllib.error.HTTPError as e:
-        # STRICT: 404 / 410 is deleted
         if e.code in [404, 410]:
             return {"status": "DELETED", "user_id": None, "username": None}
-        # 401, 400, 429 means active account challenged by anti-bot -> VALID
         return {"status": "VALID", "user_id": None, "username": clean_h}
     except urllib.error.URLError:
         return {"status": "INVALID", "user_id": None, "username": None}
@@ -193,9 +182,6 @@ def check_instagram_handle_live_sync(handle: str) -> Dict[str, Any]:
 
 
 async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[str, Any]]:
-    """
-    Checks candidate handles concurrently with controlled concurrency (10 workers).
-    """
     loop = asyncio.get_running_loop()
     semaphore = asyncio.Semaphore(10)
 
@@ -217,15 +203,14 @@ async def check_handles_live_concurrent(handles: List[str]) -> Dict[str, Dict[st
 
 
 async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> Dict[str, Any]:
-    """
-    Parallel sync analyzer supporting both:
-    1. "dedicated": Dedicated Master Database (Grades A-E & Inactive, Category: Dedicated)
-    2. "ihi": IHI Master Database (In-house Influencers, Category: In-house influencer)
-    """
     loop = asyncio.get_running_loop()
     source_lower = (source or "dedicated").strip().lower()
 
-    if source_lower == "ihi":
+    if source_lower in ["leads", "micro_unit_leads", "micro_leads"]:
+        spreadsheet_id = LEADS_SPREADSHEET_ID
+        tabs = LEADS_TABS
+        default_category = "Micro Unit Leads"
+    elif source_lower == "ihi":
         spreadsheet_id = IHI_SPREADSHEET_ID
         tabs = IHI_TABS
         default_category = "In-house influencer"
@@ -275,7 +260,7 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
         header_idx = -1
         for i, row in enumerate(reader):
             row_str = " ".join(row).lower()
-            if "name" in row_str or "channel" in row_str or "link" in row_str or "s.no" in row_str or "email" in row_str:
+            if "name" in row_str or "channel" in row_str or "link" in row_str or "account" in row_str or "s.no" in row_str or "s no" in row_str:
                 header_idx = i
                 break
         if header_idx == -1:
@@ -290,31 +275,23 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
 
         for idx_c, cell in enumerate(header):
             cell_clean = cell.strip().lower()
-            if cell_clean in ["id", "s.no"]:
-                if cell_clean == "id":
+            if cell_clean in ["id", "s.no", "s no", "sno... new"]:
+                if col_id == 0 or cell_clean == "id":
                     col_id = idx_c
             elif "full name" in cell_clean or cell_clean == "name":
                 col_name = idx_c
-            elif "instagram channel name" in cell_clean:
+            elif "account / user name" in cell_clean or "instagram channel name" in cell_clean or cell_clean == "account":
                 col_ig_name = idx_c
-            elif "instagram channel link" in cell_clean or "channel links" in cell_clean or cell_clean == "links":
+            elif "instagram channel link" in cell_clean or "channel links" in cell_clean or cell_clean in ["links", "reel", "link"]:
                 col_ig_link = idx_c
-            elif cell_clean == "grade":
+            elif cell_clean in ["grade", "status"]:
                 col_grade = idx_c
 
         for row in reader[header_idx+1:]:
             if not row or len(row) == 0:
                 continue
 
-            member_id = ""
-            if len(row) > 0 and row[0].strip().upper().startswith("SWW"):
-                member_id = row[0].strip()
-            elif col_id >= 0 and len(row) > col_id and row[col_id].strip().upper().startswith("SWW"):
-                member_id = row[col_id].strip()
-
-            if not member_id:
-                continue
-
+            member_id = row[col_id].strip() if len(row) > col_id else f"ROW_{summary['total_rows_scanned']+1}"
             creator_name = row[col_name].strip() if (col_name >= 0 and len(row) > col_name) else ""
             ig_link_cell = row[col_ig_link].strip() if (col_ig_link >= 0 and len(row) > col_ig_link) else ""
             ig_name_cell = row[col_ig_name].strip() if (col_ig_name >= 0 and len(row) > col_ig_name) else ""
@@ -338,14 +315,14 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
 
             extracted_handles = extract_instagram_handles(target_text)
 
-            # If ig_name has an extra specific handle
-            if not is_empty_or_placeholder(ig_name_cell) and target_text != ig_name_cell:
-                for eh in extract_instagram_handles(ig_name_cell):
-                    if eh not in extracted_handles:
-                        extracted_handles.append(eh)
+            # Check fallback in ig_name_cell
+            if not extracted_handles and ig_name_cell and target_text != ig_name_cell:
+                # Handle special case where account name is "handle (Name)" or "handle - Name"
+                clean_account = ig_name_cell.split("(")[0].split("-")[0].strip().split()[0].lstrip('/@') if ig_name_cell else ""
+                if is_valid_ig_handle(clean_account):
+                    extracted_handles.append(clean_account.lower())
 
             if not extracted_handles:
-                # If there's no Instagram link at all, skip non-Instagram rows
                 if "instagram" in target_text.lower() or "insta" in target_text.lower():
                     raw_display = ig_link_cell or ig_name_cell or "Malformed link"
                     raw_items.append({
@@ -375,7 +352,6 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
 
                 instagram_url = f"https://www.instagram.com/{handle}/"
 
-                # Check Channel ID / Profile History first
                 pid = history_to_pid.get(handle)
                 prof = profile_by_id.get(pid) if pid else None
 
@@ -429,7 +405,6 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
                         "can_add": True,
                     })
 
-    # Step 3: Fast concurrent verification of candidate handles
     if candidate_handles_to_check:
         live_status_map = await check_handles_live_concurrent(list(candidate_handles_to_check))
     else:
@@ -484,9 +459,6 @@ async def apply_google_sheets_sync(
     channels_to_add: List[Dict[str, Any]],
     handles_to_update: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """
-    Applies the selected new channels to scrape_profiles and updates changed handles.
-    """
     added_count = 0
     updated_count = 0
 
