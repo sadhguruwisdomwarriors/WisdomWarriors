@@ -33,11 +33,6 @@ IHI_TABS = [
     {"name": "IHI Master", "gid": "1922340728", "grade": "IHI"},
 ]
 
-LEADS_SPREADSHEET_ID = "1d6kSnXZShaItpj5IJvntzimUgnX7BzwMTzy7GPD4o1Q"
-LEADS_TABS = [
-    {"name": "LEADS-190", "gid": "0", "grade": "Leads"},
-]
-
 INVALID_TERMS = {
     "na", "n/a", "nil", "none", "not created", "not yet", "not yet made",
     "work in progress", "don't have any", "dont have any", "no", "-", "--",
@@ -206,11 +201,7 @@ async def analyze_google_sheets(db: AsyncSession, source: str = "dedicated") -> 
     loop = asyncio.get_running_loop()
     source_lower = (source or "dedicated").strip().lower()
 
-    if source_lower in ["leads", "micro_unit_leads", "micro_leads"]:
-        spreadsheet_id = LEADS_SPREADSHEET_ID
-        tabs = LEADS_TABS
-        default_category = "Micro Unit Leads"
-    elif source_lower == "ihi":
+    if source_lower == "ihi":
         spreadsheet_id = IHI_SPREADSHEET_ID
         tabs = IHI_TABS
         default_category = "In-house influencer"
