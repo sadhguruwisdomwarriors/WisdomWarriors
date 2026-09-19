@@ -111,12 +111,19 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                 {sortedMonths.map(month => {
                   const mData = channel.months[month];
                   return (
-                    <td key={month} className="p-4 text-right text-gray-300 whitespace-nowrap">
+                    <td key={month} className="p-4 text-right whitespace-nowrap align-middle">
                       {mData ? (
-                        <span>
-                          <span className="font-medium">{formatNumber(mData.views)}</span>
-                          <span className="text-gray-500 ml-1">({mData.post_count})</span>
-                        </span>
+                        <div className="flex flex-col items-end gap-0.5 text-xs">
+                          <span className="font-semibold text-white">
+                            Views - {formatNumber(mData.views)}
+                          </span>
+                          <span className="text-purple-300 font-medium">
+                            Reels - {mData.reels_count ?? mData.post_count ?? 0}
+                          </span>
+                          <span className="text-gray-400">
+                            Posts - {mData.static_post_count ?? 0}
+                          </span>
+                        </div>
                       ) : (
                         <span className="text-gray-600">—</span>
                       )}

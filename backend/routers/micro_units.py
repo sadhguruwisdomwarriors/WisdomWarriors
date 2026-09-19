@@ -238,9 +238,17 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
         months_data = {}
         for metric in metrics:
             available_months.add(metric.year_month)
+            r_count = getattr(metric, "reels_count", None)
+            s_count = getattr(metric, "static_post_count", None)
+            if r_count is None:
+                r_count = metric.post_count or 0
+            if s_count is None:
+                s_count = 0
             months_data[metric.year_month] = {
-                "views": metric.monthly_views,
-                "post_count": metric.post_count
+                "views": metric.monthly_views or 0.0,
+                "post_count": metric.post_count or 0,
+                "reels_count": r_count,
+                "static_post_count": s_count,
             }
             
         channels_data.append({

@@ -24,10 +24,15 @@ async def get_db() -> AsyncSession:
         yield session
 
 
+from sqlalchemy import text
+
+
 async def create_tables() -> None:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("ALTER TABLE monthly_channel_metrics ADD COLUMN IF NOT EXISTS reels_count INT DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE monthly_channel_metrics ADD COLUMN IF NOT EXISTS static_post_count INT DEFAULT 0;"))
         print("✓ Database tables created or verified")
     except Exception as e:
         print(f"⚠️  Error creating tables: {type(e).__name__}: {e}")

@@ -108,8 +108,7 @@ async def calculate_monthly_metrics(
     for uname in channel_totals:
         channel_totals[uname] += target_views_by_user.get(uname, 0.0)
 
-    # 3. Determine post count in target month from S2
-    # Get distinct post count per channel published in target month
+    # 3. Determine reels count and static posts count in target month from S2
     s2_target_posts = await db.execute(
         select(PostSnapshot).where(
             (PostSnapshot.run_id == snapshot2_run_id)
@@ -119,12 +118,28 @@ async def calculate_monthly_metrics(
     )
     all_s2_posts = s2_target_posts.scalars().all()
     post_counts_by_user: dict[str, int] = {uname: 0 for uname in channel_totals}
+    reels_counts_by_user: dict[str, int] = {uname: 0 for uname in channel_totals}
+    static_counts_by_user: dict[str, int] = {uname: 0 for uname in channel_totals}
+
     for p in all_s2_posts:
         owner = (p.owner_username or "").strip().lstrip("@").lower()
         inp = (p.input_url or "").lower()
+
+        # Check if reel (video) or static post (image/carousel)
+        is_reel = (
+            (p.type in ("Video", "ReelVideo"))
+            or (p.product_type == "clips")
+            or bool(p.video_play_count and p.video_play_count > 0)
+            or bool(p.video_view_count and p.video_view_count > 0)
+        )
+
         for uname in channel_totals:
             if uname == owner or uname in inp:
                 post_counts_by_user[uname] += 1
+                if is_reel:
+                    reels_counts_by_user[uname] += 1
+                else:
+                    static_counts_by_user[uname] += 1
 
     # 4. Upsert into monthly_channel_metrics
     prev_month_num = month - 1
@@ -140,6 +155,8 @@ async def calculate_monthly_metrics(
         clean_name = channel.username.strip().lstrip("@").lower()
         total_delta = channel_totals.get(clean_name, 0.0)
         p_count = post_counts_by_user.get(clean_name, 0)
+        r_count = reels_counts_by_user.get(clean_name, 0)
+        s_count = static_counts_by_user.get(clean_name, 0)
         views_per_post = total_delta / p_count if p_count > 0 else 0.0
 
         prev_metric_query = select(MonthlyChannelMetric.monthly_views).where(
@@ -161,6 +178,8 @@ async def calculate_monthly_metrics(
             previous_monthly_views=prev_views,
             growth_percent=growth_percent,
             post_count=p_count,
+            reels_count=r_count,
+            static_post_count=s_count,
             views_per_post=views_per_post,
             snapshot1_run_id=snapshot1_run_id,
             snapshot2_run_id=snapshot2_run_id,
@@ -174,6 +193,8 @@ async def calculate_monthly_metrics(
                 "previous_monthly_views": stmt.excluded.previous_monthly_views,
                 "growth_percent": stmt.excluded.growth_percent,
                 "post_count": stmt.excluded.post_count,
+                "reels_count": stmt.excluded.reels_count,
+                "static_post_count": stmt.excluded.static_post_count,
                 "views_per_post": stmt.excluded.views_per_post,
                 "snapshot1_run_id": stmt.excluded.snapshot1_run_id,
                 "snapshot2_run_id": stmt.excluded.snapshot2_run_id,

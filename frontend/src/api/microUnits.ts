@@ -43,6 +43,8 @@ export interface CalculateBody {
 export interface ChannelMonthData {
   views: number;
   post_count: number;
+  reels_count?: number;
+  static_post_count?: number;
 }
 
 export interface DashboardChannel {

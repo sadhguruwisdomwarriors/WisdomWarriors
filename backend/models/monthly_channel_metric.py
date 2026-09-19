@@ -11,6 +11,8 @@ class MonthlyChannelMetric(Base):
     previous_monthly_views = Column(Float, nullable=True)
     growth_percent = Column(Float, nullable=True)
     post_count = Column(Integer, default=0)
+    reels_count = Column(Integer, default=0)
+    static_post_count = Column(Integer, default=0)
     views_per_post = Column(Float, nullable=True)
     snapshot1_run_id = Column(Integer, nullable=False)
     snapshot2_run_id = Column(Integer, nullable=False)
