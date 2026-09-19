@@ -47,10 +47,10 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
     channels.forEach(channel => {
       if (channel.months[monthStr]) {
         dataPoint[`${channel.username}_views`] = channel.months[monthStr].views;
-        dataPoint[`${channel.username}_posts`] = channel.months[monthStr].post_count;
+        dataPoint[`${channel.username}_reels`] = channel.months[monthStr].reels_count ?? channel.months[monthStr].post_count ?? 0;
       } else {
         dataPoint[`${channel.username}_views`] = 0;
-        dataPoint[`${channel.username}_posts`] = 0;
+        dataPoint[`${channel.username}_reels`] = 0;
       }
     });
     return dataPoint;
@@ -120,9 +120,6 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                           <span className="text-purple-300 font-medium">
                             Reels - {mData.reels_count ?? mData.post_count ?? 0}
                           </span>
-                          <span className="text-gray-400">
-                            Posts - {mData.static_post_count ?? 0}
-                          </span>
                         </div>
                       ) : (
                         <span className="text-gray-600">—</span>
@@ -181,7 +178,7 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
           </div>
 
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-            <h3 className="text-lg font-semibold text-white mb-4">Monthly Posts Count</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Monthly Reels Count</h3>
             <div className="h-80 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -196,7 +193,7 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                   {channels.map((channel, idx) => (
                     <Bar 
                       key={channel.instagram_id}
-                      dataKey={`${channel.username}_posts`} 
+                      dataKey={`${channel.username}_reels`} 
                       name={`@${channel.username}`}
                       fill={CHART_COLORS[idx % CHART_COLORS.length]} 
                       radius={[4, 4, 0, 0]}
