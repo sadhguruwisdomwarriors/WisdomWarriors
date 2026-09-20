@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2, X, UserPlus, Users, ChevronDown, ChevronUp } from "lucide-react";
 import { 
+  addCreator,
+  deleteCreator,
   addChannel, 
   removeChannel, 
   fetchAvailableProfiles, 
@@ -29,19 +31,20 @@ interface ManageChannelsModalProps {
 }
 
 export default function ManageChannelsModal({ unit, onClose }: ManageChannelsModalProps) {
-  const [platform, setPlatform] = useState<"INSTAGRAM" | "YOUTUBE">("INSTAGRAM");
-  const [creatorNameInput, setCreatorNameInput] = useState("");
+  const [newCreatorName, setNewCreatorName] = useState("");
+  const [activeCreatorId, setActiveCreatorId] = useState<number | string | null>(null);
   
-  // Instagram states
-  const [usernameInput, setUsernameInput] = useState("");
+  // Channel add states for active creator
+  const [platform, setPlatform] = useState<"INSTAGRAM" | "YOUTUBE">("INSTAGRAM");
   const [selectedProfile, setSelectedProfile] = useState("");
-  const [isCustomMode, setIsCustomMode] = useState(false);
+  const [customIgUsername, setCustomIgUsername] = useState("");
+  const [isCustomIg, setIsCustomIg] = useState(false);
 
-  // YouTube states
   const [selectedYtChannel, setSelectedYtChannel] = useState("");
   const [ytSearchTerm, setYtSearchTerm] = useState("");
   const [customYtId, setCustomYtId] = useState("");
   const [customYtTitle, setCustomYtTitle] = useState("");
+  const [isCustomYt, setIsCustomYt] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -55,8 +58,33 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     queryFn: fetchAvailableYoutubeChannels,
   });
 
-  const addMutation = useMutation({
+  // Creator Mutations
+  const addCreatorMutation = useMutation({
+    mutationFn: (name: string) => addCreator(unit.id, { name }),
+    onSuccess: (newCreator) => {
+      queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+      setNewCreatorName("");
+      setActiveCreatorId(newCreator.id);
+    },
+    onError: (err: any) => {
+      alert(`Error creating creator: ${err.message}`);
+    },
+  });
+
+  const deleteCreatorMutation = useMutation({
+    mutationFn: (creatorId: number) => deleteCreator(unit.id, creatorId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+    },
+    onError: (err: any) => {
+      alert(`Error deleting creator: ${err.message}`);
+    },
+  });
+
+  // Channel Mutations
+  const addChannelMutation = useMutation({
     mutationFn: (body: { 
+      creator_id?: number;
       platform: "INSTAGRAM" | "YOUTUBE";
       username: string; 
       instagram_id?: string; 
@@ -65,9 +93,8 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     }) => addChannel(unit.id, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
-      setUsernameInput("");
-      setCreatorNameInput("");
       setSelectedProfile("");
+      setCustomIgUsername("");
       setSelectedYtChannel("");
       setCustomYtId("");
       setCustomYtTitle("");
@@ -77,7 +104,7 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     },
   });
 
-  const removeMutation = useMutation({
+  const removeChannelMutation = useMutation({
     mutationFn: (channelId: number) => removeChannel(unit.id, channelId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
@@ -87,51 +114,60 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     },
   });
 
-  const handleAddSubmit = (e: FormEvent) => {
+  const handleCreateCreatorSubmit = (e: FormEvent) => {
     e.preventDefault();
+    const name = newCreatorName.trim();
+    if (!name) return;
+    addCreatorMutation.mutate(name);
+  };
 
+  const handleAttachChannel = (creatorId?: number, creatorName?: string) => {
     if (platform === "INSTAGRAM") {
-      if (isCustomMode) {
-        if (!usernameInput.trim()) return;
-        const cleanUser = usernameInput.trim().replace(/^@/, '');
-        addMutation.mutate({
+      if (isCustomIg) {
+        if (!customIgUsername.trim()) return;
+        const cleanUser = customIgUsername.trim().replace(/^@/, '');
+        addChannelMutation.mutate({
+          creator_id: creatorId,
           platform: "INSTAGRAM",
           username: cleanUser,
-          creator_name: creatorNameInput.trim() || cleanUser,
+          creator_name: creatorName || cleanUser,
           channel_title: `@${cleanUser}`,
         });
       } else {
         if (!selectedProfile) return;
         const prof = availableProfiles.find(p => p.username === selectedProfile);
         if (prof) {
-          addMutation.mutate({
+          addChannelMutation.mutate({
+            creator_id: creatorId,
             platform: "INSTAGRAM",
             username: prof.username,
             instagram_id: prof.id,
-            creator_name: creatorNameInput.trim() || prof.creator_name || `@${prof.username}`,
+            creator_name: creatorName || prof.creator_name || `@${prof.username}`,
             channel_title: `@${prof.username}`,
           });
         }
       }
     } else {
       // YouTube
-      if (isCustomMode) {
+      if (isCustomYt) {
         if (!customYtId.trim()) return;
-        addMutation.mutate({
+        addChannelMutation.mutate({
+          creator_id: creatorId,
           platform: "YOUTUBE",
           username: customYtId.trim(),
-          creator_name: creatorNameInput.trim() || customYtTitle.trim() || customYtId.trim(),
+          creator_name: creatorName || customYtTitle.trim() || customYtId.trim(),
           channel_title: customYtTitle.trim() || customYtId.trim(),
         });
       } else {
         if (!selectedYtChannel) return;
         const yt = availableYtChannels.find(c => c.youtube_channel_id === selectedYtChannel || c.id === selectedYtChannel);
         if (yt) {
-          addMutation.mutate({
+          addChannelMutation.mutate({
+            creator_id: creatorId,
             platform: "YOUTUBE",
             username: yt.youtube_channel_id || yt.id,
             instagram_id: yt.youtube_channel_id || yt.id,
-            creator_name: creatorNameInput.trim() || yt.title || "YouTube Creator",
+            creator_name: creatorName || yt.title || "YouTube Creator",
             channel_title: yt.title,
           });
         }
@@ -139,7 +175,27 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     }
   };
 
-  // Filter out channels already added
+  // Group existing channels by creator
+  const explicitCreators = unit.creators || [];
+  const creatorMap: Record<string, { id?: number; name: string; channels: typeof unit.channels }> = {};
+
+  // Initialize from explicit creators
+  explicitCreators.forEach(cr => {
+    creatorMap[cr.name] = { id: cr.id, name: cr.name, channels: [] };
+  });
+
+  // Distribute channels
+  unit.channels.forEach(ch => {
+    const cName = ch.creator_name || ch.channel_title || ch.username || "Unassigned Creator";
+    if (!creatorMap[cName]) {
+      creatorMap[cName] = { id: ch.creator_id || undefined, name: cName, channels: [] };
+    }
+    creatorMap[cName].channels.push(ch);
+  });
+
+  const creatorList = Object.values(creatorMap);
+
+  // Filter already assigned handles
   const existingKeys = new Set(unit.channels.map(c => `${c.platform || 'INSTAGRAM'}_${c.username.toLowerCase()}`));
   
   const unassignedProfiles = availableProfiles.filter(
@@ -150,24 +206,20 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     .filter(c => !existingKeys.has(`YOUTUBE_${(c.youtube_channel_id || c.id).toLowerCase()}`))
     .filter(c => !ytSearchTerm || c.title.toLowerCase().includes(ytSearchTerm.toLowerCase()) || c.custom_url.toLowerCase().includes(ytSearchTerm.toLowerCase()));
 
-  // Extract unique creator names from existing channels for quick suggestions
-  const existingCreatorNames = Array.from(
-    new Set(unit.channels.map(c => c.creator_name).filter(Boolean))
-  );
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-lg shadow-2xl my-auto">
-        <div className="flex justify-between items-center mb-5 pb-3 border-b border-gray-800">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-auto max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-800 flex-shrink-0">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span>Edit Channels</span>
+              <span>Edit Creators & Channels</span>
               <span className="bg-purple-950 text-purple-300 text-xs px-2.5 py-0.5 rounded-full border border-purple-800">
                 {unit.name}
               </span>
             </h2>
-            <p className="text-xs text-gray-400 mt-1">
-              Add multiple YouTube and Instagram channels grouped by Content Creator
+            <p className="text-xs text-gray-400 mt-0.5">
+              Add Content Creators first, then assign multiple YouTube and Instagram channels to each
             </p>
           </div>
           <button
@@ -178,254 +230,312 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
           </button>
         </div>
 
-        {/* Existing Channels List */}
-        <div className="mb-5">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2.5">
-            Current Channels ({unit.channels.length})
-          </h3>
-          {unit.channels.length === 0 ? (
-            <div className="p-4 bg-gray-950/60 rounded-xl border border-dashed border-gray-800 text-center text-gray-500 text-sm">
-              No channels added to this micro unit yet.
-            </div>
-          ) : (
-            <ul className="space-y-2 max-h-44 overflow-y-auto pr-1">
-              {unit.channels.map((channel) => {
-                const isYT = (channel.platform || "INSTAGRAM").toUpperCase() === "YOUTUBE";
-                return (
-                  <li
-                    key={channel.id}
-                    className="flex items-center justify-between p-2.5 bg-gray-800/70 border border-gray-700/60 rounded-xl text-sm hover:border-gray-600 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5 overflow-hidden">
-                      {isYT ? (
-                        <div className="w-6 h-6 rounded-full bg-red-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-red-900/40">
-                          <YoutubeIcon size={13} className="text-white" />
-                        </div>
-                      ) : (
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                          <InstagramIcon size={13} className="text-white" />
-                        </div>
-                      )}
-                      <div className="overflow-hidden">
-                        <div className="text-white font-medium truncate">
-                          {isYT ? (channel.channel_title || channel.username) : `@${channel.username}`}
-                        </div>
-                        <div className="text-xs text-purple-300 font-medium truncate">
-                          Creator: {channel.creator_name || "Unassigned"}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => removeMutation.mutate(channel.id)}
-                      disabled={removeMutation.isPending}
-                      className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-950/40 rounded-lg transition-colors ml-2"
-                      title="Remove channel"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        {/* Add Channel Section */}
-        <div className="pt-4 border-t border-gray-800">
-          {/* Platform Tabs */}
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              type="button"
-              onClick={() => setPlatform("INSTAGRAM")}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
-                platform === "INSTAGRAM"
-                  ? "bg-gradient-to-r from-pink-600/30 to-purple-600/30 border-pink-500/50 text-pink-200"
-                  : "bg-gray-950 border-gray-800 text-gray-400 hover:text-white"
-              }`}
-            >
-              <InstagramIcon size={14} />
-              Instagram Channel
-            </button>
-            <button
-              type="button"
-              onClick={() => setPlatform("YOUTUBE")}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all ${
-                platform === "YOUTUBE"
-                  ? "bg-red-950/50 border-red-500/50 text-red-200"
-                  : "bg-gray-950 border-gray-800 text-gray-400 hover:text-white"
-              }`}
-            >
-              <YoutubeIcon size={14} className="text-red-500" />
-              YouTube Channel
-            </button>
-          </div>
-
-          <form onSubmit={handleAddSubmit} className="space-y-3">
-            {/* Creator Name Field */}
-            <div>
-              <label className="block text-gray-300 text-xs font-medium mb-1">
-                Content Creator Name
-              </label>
+        <div className="overflow-y-auto flex-1 pr-1 space-y-5">
+          {/* STEP 1: Add New Content Creator Form */}
+          <div className="bg-gray-950/80 border border-purple-900/40 rounded-xl p-4 shadow-sm">
+            <h3 className="text-xs font-bold text-purple-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <UserPlus size={14} />
+              Add Content Creator to this Unit
+            </h3>
+            <form onSubmit={handleCreateCreatorSubmit} className="flex gap-2">
               <input
                 type="text"
-                placeholder="e.g. Sanjeev Yogii, Priya Sharma"
-                list="creator-names-list"
-                className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-gray-600"
-                value={creatorNameInput}
-                onChange={(e) => setCreatorNameInput(e.target.value)}
+                placeholder="Enter Content Creator Name (e.g. Sanjeev Yogii, Priya Sharma)"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-gray-600"
+                value={newCreatorName}
+                onChange={(e) => setNewCreatorName(e.target.value)}
+                required
               />
-              <datalist id="creator-names-list">
-                {existingCreatorNames.map((name, i) => (
-                  <option key={i} value={name} />
-                ))}
-              </datalist>
+              <button
+                type="submit"
+                disabled={addCreatorMutation.isPending || !newCreatorName.trim()}
+                className="px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white font-medium rounded-xl text-sm flex items-center gap-1.5 transition-colors disabled:opacity-50 shadow-md shadow-purple-950 flex-shrink-0"
+              >
+                <Plus size={16} />
+                {addCreatorMutation.isPending ? "Adding..." : "Add Creator"}
+              </button>
+            </form>
+          </div>
+
+          {/* STEP 2: Content Creators & Channels List */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Users size={14} />
+                Content Creators in this Unit ({creatorList.length})
+              </h3>
+              <span className="text-xs text-gray-500">
+                Total Channels: {unit.channels.length}
+              </span>
             </div>
 
-            {/* INSTAGRAM FORM */}
-            {platform === "INSTAGRAM" && (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Instagram Account</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomMode(!isCustomMode)}
-                    className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                  >
-                    {isCustomMode ? "← Select from Scraped Profiles" : "+ Enter Custom Handle"}
-                  </button>
-                </div>
+            {creatorList.length === 0 ? (
+              <div className="p-8 bg-gray-950/40 rounded-xl border border-dashed border-gray-800 text-center text-gray-500 text-sm space-y-1">
+                <p className="font-medium text-gray-400">No content creators added yet.</p>
+                <p className="text-xs text-gray-600">Type a creator's name above and click "Add Creator" to start.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {creatorList.map((creator, cIdx) => {
+                  const isExpanded = activeCreatorId === (creator.id || creator.name);
+                  const ytCount = creator.channels.filter(c => (c.platform || "INSTAGRAM").toUpperCase() === "YOUTUBE").length;
+                  const igCount = creator.channels.filter(c => (c.platform || "INSTAGRAM").toUpperCase() === "INSTAGRAM").length;
 
-                {!isCustomMode ? (
-                  <div>
-                    <select
-                      className="w-full bg-gray-950 border border-gray-700 rounded-xl p-2.5 text-white text-sm focus:outline-none focus:border-purple-500"
-                      value={selectedProfile}
-                      onChange={(e) => {
-                        setSelectedProfile(e.target.value);
-                        if (!creatorNameInput) {
-                          const prof = availableProfiles.find(p => p.username === e.target.value);
-                          if (prof?.creator_name) setCreatorNameInput(prof.creator_name);
-                        }
-                      }}
-                      disabled={loadingProfiles}
+                  return (
+                    <div
+                      key={cIdx}
+                      className="bg-gray-950/90 border border-gray-800 rounded-xl overflow-hidden shadow-md"
                     >
-                      <option value="">-- Choose Instagram profile --</option>
-                      {unassignedProfiles.map((p) => (
-                        <option key={p.id} value={p.username}>
-                          @{p.username} {p.creator_name ? `(${p.creator_name})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div>
-                    <input
-                      type="text"
-                      placeholder="e.g. sanjeev_yogii (without @)"
-                      className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
-                      value={usernameInput}
-                      onChange={(e) => setUsernameInput(e.target.value)}
-                      required
-                    />
-                  </div>
-                )}
-              </>
-            )}
+                      {/* Creator Header Bar */}
+                      <div className="p-3.5 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-7 h-7 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700/50 flex items-center justify-center text-xs font-bold">
+                            {creator.name.charAt(0).toUpperCase()}
+                          </span>
+                          <div>
+                            <div className="text-white font-bold text-sm">{creator.name}</div>
+                            <div className="text-[11px] text-gray-400 flex items-center gap-2 mt-0.5">
+                              <span className="flex items-center gap-1 text-red-300">
+                                <YoutubeIcon size={11} className="text-red-500" /> {ytCount} YouTube
+                              </span>
+                              <span>•</span>
+                              <span className="flex items-center gap-1 text-pink-300">
+                                <InstagramIcon size={11} className="text-pink-400" /> {igCount} Instagram
+                              </span>
+                            </div>
+                          </div>
+                        </div>
 
-            {/* YOUTUBE FORM */}
-            {platform === "YOUTUBE" && (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">YouTube Channel from Database</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomMode(!isCustomMode)}
-                    className="text-xs text-red-400 hover:text-red-300 transition-colors"
-                  >
-                    {isCustomMode ? "← Select from YouTube DB" : "+ Enter Custom Channel ID"}
-                  </button>
-                </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setActiveCreatorId(isExpanded ? null : (creator.id || creator.name))}
+                            className="px-3 py-1.5 bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 text-xs font-medium rounded-lg border border-purple-800/50 transition-colors flex items-center gap-1"
+                          >
+                            <Plus size={13} />
+                            {isExpanded ? "Close" : "+ Add Channels"}
+                            {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                          </button>
+                          {creator.id && (
+                            <button
+                              onClick={() => {
+                                if (confirm(`Remove creator "${creator.name}" and all their assigned channels?`)) {
+                                  deleteCreatorMutation.mutate(creator.id!);
+                                }
+                              }}
+                              disabled={deleteCreatorMutation.isPending}
+                              className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-colors"
+                              title="Delete Creator"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
 
-                {!isCustomMode ? (
-                  <div className="space-y-2">
-                    {availableYtChannels.length > 8 && (
-                      <input
-                        type="text"
-                        placeholder="Search YouTube channel by title..."
-                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-red-500"
-                        value={ytSearchTerm}
-                        onChange={(e) => setYtSearchTerm(e.target.value)}
-                      />
-                    )}
-                    <select
-                      className="w-full bg-gray-950 border border-gray-700 rounded-xl p-2.5 text-white text-sm focus:outline-none focus:border-red-500"
-                      value={selectedYtChannel}
-                      onChange={(e) => {
-                        setSelectedYtChannel(e.target.value);
-                        if (!creatorNameInput) {
-                          const yt = availableYtChannels.find(c => c.youtube_channel_id === e.target.value || c.id === e.target.value);
-                          if (yt?.title) setCreatorNameInput(yt.title);
-                        }
-                      }}
-                      disabled={loadingYtChannels}
-                    >
-                      <option value="">-- Choose YouTube channel --</option>
-                      {filteredYtChannels.map((c) => (
-                        <option key={c.id} value={c.youtube_channel_id || c.id}>
-                          ▶️ {c.title} {c.custom_url ? `(${c.custom_url})` : ""} {c.current_subscribers ? `• ${c.current_subscribers.toLocaleString()} subs` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div>
-                      <label className="block text-gray-400 text-xs mb-1">YouTube Channel ID / Handle</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. UC_xxxx or @ChannelHandle"
-                        className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-red-500"
-                        value={customYtId}
-                        onChange={(e) => setCustomYtId(e.target.value)}
-                        required
-                      />
+                      {/* Attached Channels List under Creator */}
+                      <div className="p-3">
+                        {creator.channels.length === 0 ? (
+                          <div className="py-3 text-center text-gray-600 text-xs italic">
+                            No channels attached to {creator.name} yet. Click "+ Add Channels" above.
+                          </div>
+                        ) : (
+                          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {creator.channels.map((ch) => {
+                              const isYT = (ch.platform || "INSTAGRAM").toUpperCase() === "YOUTUBE";
+                              return (
+                                <li
+                                  key={ch.id}
+                                  className="flex items-center justify-between p-2 bg-gray-900/60 border border-gray-800 rounded-lg text-xs hover:border-gray-700 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                    {isYT ? (
+                                      <div className="w-5 h-5 rounded-full bg-red-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-red-900/40">
+                                        <YoutubeIcon size={11} className="text-white" />
+                                      </div>
+                                    ) : (
+                                      <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                                        <InstagramIcon size={11} className="text-white" />
+                                      </div>
+                                    )}
+                                    <span className="text-gray-200 font-medium truncate" title={isYT ? (ch.channel_title || ch.username) : `@${ch.username}`}>
+                                      {isYT ? (ch.channel_title || ch.username) : `@${ch.username}`}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => removeChannelMutation.mutate(ch.id)}
+                                    disabled={removeChannelMutation.isPending}
+                                    className="p-1 text-gray-500 hover:text-red-400 transition-colors ml-1.5"
+                                    title="Remove channel"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+
+                        {/* Inline Expandable Channel Picker for this Creator */}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-gray-800 bg-gray-900/80 rounded-xl p-3 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-white">
+                                Attach Channels to <span className="text-purple-300 font-bold">{creator.name}</span>
+                              </span>
+                              {/* Platform Switcher */}
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setPlatform("INSTAGRAM")}
+                                  className={`py-1 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+                                    platform === "INSTAGRAM"
+                                      ? "bg-gradient-to-r from-pink-600/30 to-purple-600/30 border border-pink-500/50 text-pink-200"
+                                      : "bg-gray-950 text-gray-400 hover:text-white border border-gray-800"
+                                  }`}
+                                >
+                                  <InstagramIcon size={12} /> Instagram
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPlatform("YOUTUBE")}
+                                  className={`py-1 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+                                    platform === "YOUTUBE"
+                                      ? "bg-red-950/50 border border-red-500/50 text-red-200"
+                                      : "bg-gray-950 text-gray-400 hover:text-white border border-gray-800"
+                                  }`}
+                                >
+                                  <YoutubeIcon size={12} className="text-red-500" /> YouTube
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* INSTAGRAM SELECTOR */}
+                            {platform === "INSTAGRAM" && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between text-[11px] text-gray-400">
+                                  <span>Select Instagram Account</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsCustomIg(!isCustomIg)}
+                                    className="text-purple-400 hover:text-purple-300"
+                                  >
+                                    {isCustomIg ? "← Pick from Scraped Profiles" : "+ Enter Custom Handle"}
+                                  </button>
+                                </div>
+                                {!isCustomIg ? (
+                                  <select
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-purple-500"
+                                    value={selectedProfile}
+                                    onChange={(e) => setSelectedProfile(e.target.value)}
+                                    disabled={loadingProfiles}
+                                  >
+                                    <option value="">-- Choose Instagram profile --</option>
+                                    {unassignedProfiles.map((p) => (
+                                      <option key={p.id} value={p.username}>
+                                        @{p.username} {p.creator_name ? `(${p.creator_name})` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. sanjeev_yogii (without @)"
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500"
+                                    value={customIgUsername}
+                                    onChange={(e) => setCustomIgUsername(e.target.value)}
+                                  />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleAttachChannel(creator.id, creator.name)}
+                                  disabled={addChannelMutation.isPending || (!isCustomIg ? !selectedProfile : !customIgUsername.trim())}
+                                  className="w-full py-1.5 bg-purple-700 hover:bg-purple-600 text-white font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                                >
+                                  <Plus size={14} />
+                                  {addChannelMutation.isPending ? "Attaching..." : `Attach Instagram to ${creator.name}`}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* YOUTUBE SELECTOR */}
+                            {platform === "YOUTUBE" && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between text-[11px] text-gray-400">
+                                  <span>Select YouTube Channel from Database</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsCustomYt(!isCustomYt)}
+                                    className="text-red-400 hover:text-red-300"
+                                  >
+                                    {isCustomYt ? "← Pick from YouTube DB" : "+ Enter Custom Channel ID"}
+                                  </button>
+                                </div>
+                                {!isCustomYt ? (
+                                  <div className="space-y-1.5">
+                                    <input
+                                      type="text"
+                                      placeholder="Filter YouTube channels by title..."
+                                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-red-500"
+                                      value={ytSearchTerm}
+                                      onChange={(e) => setYtSearchTerm(e.target.value)}
+                                    />
+                                    <select
+                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-red-500"
+                                      value={selectedYtChannel}
+                                      onChange={(e) => setSelectedYtChannel(e.target.value)}
+                                      disabled={loadingYtChannels}
+                                    >
+                                      <option value="">-- Choose YouTube channel ({filteredYtChannels.length} available) --</option>
+                                      {filteredYtChannels.map((c) => (
+                                        <option key={c.id} value={c.youtube_channel_id || c.id}>
+                                          ▶️ {c.title} {c.custom_url ? `(${c.custom_url})` : ""} {c.current_subscribers ? `• ${c.current_subscribers.toLocaleString()} subs` : ""}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    <input
+                                      type="text"
+                                      placeholder="YouTube Channel ID / Handle (e.g. UC_xxxx)"
+                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-red-500"
+                                      value={customYtId}
+                                      onChange={(e) => setCustomYtId(e.target.value)}
+                                    />
+                                    <input
+                                      type="text"
+                                      placeholder="Display Title (Optional)"
+                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-red-500"
+                                      value={customYtTitle}
+                                      onChange={(e) => setCustomYtTitle(e.target.value)}
+                                    />
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleAttachChannel(creator.id, creator.name)}
+                                  disabled={addChannelMutation.isPending || (!isCustomYt ? !selectedYtChannel : !customYtId.trim())}
+                                  className="w-full py-1.5 bg-red-700 hover:bg-red-600 text-white font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                                >
+                                  <Plus size={14} />
+                                  {addChannelMutation.isPending ? "Attaching..." : `Attach YouTube to ${creator.name}`}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-gray-400 text-xs mb-1">Channel Display Title</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Sanjeev Wisdom Warriors"
-                        className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-red-500"
-                        value={customYtTitle}
-                        onChange={(e) => setCustomYtTitle(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
+                  );
+                })}
+              </div>
             )}
-
-            <button
-              type="submit"
-              disabled={
-                addMutation.isPending || 
-                (platform === "INSTAGRAM" 
-                  ? (!isCustomMode ? !selectedProfile : !usernameInput.trim())
-                  : (!isCustomMode ? !selectedYtChannel : !customYtId.trim()))
-              }
-              className={`w-full mt-3 py-2.5 text-white font-medium rounded-xl text-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md ${
-                platform === "YOUTUBE"
-                  ? "bg-red-700 hover:bg-red-600 shadow-red-950"
-                  : "bg-purple-700 hover:bg-purple-600 shadow-purple-950"
-              }`}
-            >
-              <Plus size={16} />
-              {addMutation.isPending ? "Adding..." : `Add ${platform === "YOUTUBE" ? "YouTube" : "Instagram"} Channel`}
-            </button>
-          </form>
+          </div>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-gray-800 flex justify-end">
+        {/* Footer */}
+        <div className="mt-4 pt-3 border-t border-gray-800 flex justify-end flex-shrink-0">
           <button
             type="button"
             onClick={onClose}

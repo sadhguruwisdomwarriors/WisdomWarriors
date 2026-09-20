@@ -10,9 +10,15 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+export interface MicroUnitCreator {
+  id: number;
+  name: string;
+}
+
 export interface MicroUnitChannel {
   id: number;
   micro_unit_id: number;
+  creator_id?: number | null;
   platform?: "INSTAGRAM" | "YOUTUBE";
   instagram_id?: string;
   username: string;
@@ -28,6 +34,7 @@ export interface MicroUnit {
   poc_name: string | null;
   poc?: { id: number; full_name: string; email: string } | null;
   status: string;
+  creators?: MicroUnitCreator[];
   channels: MicroUnitChannel[];
 }
 
@@ -158,9 +165,27 @@ export async function deleteMicroUnit(id: number): Promise<void> {
   return handleResponse<void>(res);
 }
 
+export async function addCreator(unitId: number, body: { name: string }): Promise<MicroUnitCreator> {
+  const res = await fetch(`${API_URL}/api/micro-units/${unitId}/creators`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+  return handleResponse<MicroUnitCreator>(res);
+}
+
+export async function deleteCreator(unitId: number, creatorId: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/micro-units/${unitId}/creators/${creatorId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handleResponse<void>(res);
+}
+
 export async function addChannel(
   unitId: number, 
   body: { 
+    creator_id?: number;
     platform?: "INSTAGRAM" | "YOUTUBE";
     username: string; 
     instagram_id?: string; 

@@ -5,6 +5,7 @@ class MicroUnitChannel(Base):
     __tablename__ = "micro_unit_channels"
     id = Column(Integer, primary_key=True, autoincrement=True)
     micro_unit_id = Column(Integer, ForeignKey("micro_units.id", ondelete="CASCADE"), nullable=False, index=True)
+    creator_id = Column(Integer, ForeignKey("micro_unit_creators.id", ondelete="SET NULL"), nullable=True, index=True)
     platform = Column(Text, default="INSTAGRAM", nullable=False) # "INSTAGRAM" or "YOUTUBE"
     instagram_id = Column(Text, nullable=True)
     username = Column(Text, nullable=False) # IG handle or YouTube channel ID / handle

@@ -11,6 +11,7 @@ from backend.models.scrape_run_profile_progress import ScrapeRunProfileProgress
 from backend.models.schedule import Schedule
 from backend.models.user import User
 from backend.models.micro_unit import MicroUnit
+from backend.models.micro_unit_creator import MicroUnitCreator
 from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
 from backend.models.poc_channel_note import PocChannelNote
@@ -29,6 +30,7 @@ __all__ = [
     "Schedule",
     "User",
     "MicroUnit",
+    "MicroUnitCreator",
     "MicroUnitChannel",
     "MonthlyChannelMetric",
     "PocChannelNote",

@@ -7,6 +7,7 @@ from collections import defaultdict
 from backend.db.engine import get_db
 from backend.models.user import User
 from backend.models.micro_unit import MicroUnit
+from backend.models.micro_unit_creator import MicroUnitCreator
 from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
 from backend.models.scrape_run import ScrapeRun
@@ -25,7 +26,11 @@ class MicroUnitUpdate(BaseModel):
     name: Optional[str] = None
     poc_user_id: Optional[int] = None
 
+class CreatorAdd(BaseModel):
+    name: str
+
 class ChannelAdd(BaseModel):
+    creator_id: Optional[int] = None
     platform: Optional[str] = "INSTAGRAM" # "INSTAGRAM" or "YOUTUBE"
     username: str
     instagram_id: Optional[str] = None
@@ -47,6 +52,12 @@ async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Opt
     units = result.scalars().all()
     response = []
     for unit in units:
+        # Fetch creators
+        creators_res = await db.execute(
+            select(MicroUnitCreator).where(MicroUnitCreator.micro_unit_id == unit.id).order_by(MicroUnitCreator.name.asc())
+        )
+        creators = creators_res.scalars().all()
+
         channels_result = await db.execute(select(MicroUnitChannel).where(MicroUnitChannel.micro_unit_id == unit.id))
         channels = channels_result.scalars().all()
         
@@ -67,9 +78,11 @@ async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Opt
             "poc_user_id": unit.poc_user_id,
             "poc_name": poc_name,
             "poc": poc,
+            "creators": [{"id": cr.id, "name": cr.name} for cr in creators],
             "channels": [
                 {
                     "id": c.id,
+                    "creator_id": getattr(c, "creator_id", None),
                     "platform": getattr(c, "platform", "INSTAGRAM") or "INSTAGRAM",
                     "instagram_id": c.instagram_id,
                     "username": c.username,
@@ -111,6 +124,29 @@ async def delete_micro_unit(id: int, db: AsyncSession = Depends(get_db), current
         raise HTTPException(status_code=404, detail="Micro Unit not found")
     
     await db.delete(unit)
+    await db.commit()
+    return {"status": "deleted"}
+
+@router.post("/{id}/creators")
+async def add_creator(id: int, request: CreatorAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    clean_name = request.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Creator name cannot be empty")
+    creator = MicroUnitCreator(micro_unit_id=id, name=clean_name)
+    db.add(creator)
+    await db.commit()
+    await db.refresh(creator)
+    return {"id": creator.id, "name": creator.name, "micro_unit_id": creator.micro_unit_id}
+
+@router.delete("/{id}/creators/{creator_id}")
+async def delete_creator(id: int, creator_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    result = await db.execute(select(MicroUnitCreator).where(MicroUnitCreator.id == creator_id, MicroUnitCreator.micro_unit_id == id))
+    creator = result.scalars().first()
+    if not creator:
+        raise HTTPException(status_code=404, detail="Creator not found")
+    # Delete channels associated with this creator
+    await db.execute(delete(MicroUnitChannel).where(MicroUnitChannel.creator_id == creator_id))
+    await db.delete(creator)
     await db.commit()
     return {"status": "deleted"}
 
@@ -160,7 +196,15 @@ async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(g
     
     instagram_id = request.instagram_id
     creator_name = request.creator_name
+    creator_id = request.creator_id
     channel_title = request.channel_title
+    
+    # If creator_id is provided, get the creator name
+    if creator_id:
+        cr_res = await db.execute(select(MicroUnitCreator).where(MicroUnitCreator.id == creator_id))
+        cr_obj = cr_res.scalars().first()
+        if cr_obj:
+            creator_name = cr_obj.name
     
     if platform == "INSTAGRAM":
         profile_result = await db.execute(select(Profile).where(Profile.username.ilike(clean_username)))
@@ -186,6 +230,7 @@ async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(g
 
     channel = MicroUnitChannel(
         micro_unit_id=id,
+        creator_id=creator_id,
         platform=platform,
         instagram_id=instagram_id,
         username=clean_username,
@@ -256,6 +301,12 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
         if user:
             poc_name = user.full_name
 
+    # Fetch explicit creators
+    creators_res = await db.execute(
+        select(MicroUnitCreator).where(MicroUnitCreator.micro_unit_id == id).order_by(MicroUnitCreator.name.asc())
+    )
+    explicit_creators = creators_res.scalars().all()
+
     channels_result = await db.execute(select(MicroUnitChannel).where(MicroUnitChannel.micro_unit_id == id))
     channels = channels_result.scalars().all()
     
@@ -271,12 +322,7 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
         available_months_set.add(m.year_month)
         ig_metrics_map[m.instagram_id][m.year_month] = m
 
-    # If no Instagram months calculated yet, default to current month of that year or empty
-    if not available_months_set:
-        # Default to available months
-        available_months = []
-    else:
-        available_months = sorted(list(available_months_set))
+    available_months = sorted(list(available_months_set)) if available_months_set else []
 
     # Identify YouTube channels in this unit
     yt_channels = [c for c in channels if (getattr(c, "platform", "INSTAGRAM") or "INSTAGRAM").upper() == "YOUTUBE"]
@@ -292,10 +338,17 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
         except Exception:
             yt_metrics_cache[ym] = {}
 
-    # Group channels by creator_name
-    creator_groups = defaultdict(list)
+    # Group channels by creator
+    # If explicit creators exist, initialize them
+    creator_groups = {}
+    for cr in explicit_creators:
+        creator_groups[cr.name] = []
+
+    # Assign channels to creator groups
     for c in channels:
         c_name = (c.creator_name or c.channel_title or c.username or "Unassigned Creator").strip()
+        if c_name not in creator_groups:
+            creator_groups[c_name] = []
         creator_groups[c_name].append(c)
 
     creators_data = []
@@ -331,7 +384,6 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
                     # Instagram
                     metric = ig_metrics_map.get(ch.instagram_id, {}).get(ym)
                     if not metric:
-                        # Try matching by username
                         metric = ig_metrics_map.get(ch.username, {}).get(ym)
                     
                     ig_views = float(metric.monthly_views if metric else 0.0)
@@ -370,7 +422,7 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
             "months": months_dict
         })
 
-    # Also build legacy channels array for backwards compatibility
+    # Legacy channels array for backwards compatibility
     channels_data = []
     for channel in channels:
         platform = (getattr(channel, "platform", "INSTAGRAM") or "INSTAGRAM").upper()
