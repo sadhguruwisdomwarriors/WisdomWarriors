@@ -5,6 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/wisdom_warriors"
+    youtube_database_url: str = ""
 
     # Apify
     apify_token: str = ""

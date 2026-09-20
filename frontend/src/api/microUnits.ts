@@ -13,8 +13,10 @@ async function handleResponse<T>(res: Response): Promise<T> {
 export interface MicroUnitChannel {
   id: number;
   micro_unit_id: number;
-  instagram_id: string;
+  platform?: "INSTAGRAM" | "YOUTUBE";
+  instagram_id?: string;
   username: string;
+  channel_title?: string;
   creator_name: string;
 }
 
@@ -48,15 +50,60 @@ export interface ChannelMonthData {
 }
 
 export interface DashboardChannel {
-  instagram_id: string;
+  id?: number;
+  platform?: "INSTAGRAM" | "YOUTUBE";
+  instagram_id?: string;
   username: string;
+  channel_title?: string;
   creator_name: string;
   months: Record<string, ChannelMonthData>;
 }
 
+export interface CreatorYoutubeChannel {
+  id: number;
+  channel_id: string;
+  title: string;
+  views: number;
+  videos: number;
+}
+
+export interface CreatorInstagramChannel {
+  id: number;
+  username: string;
+  creator_name?: string;
+  views: number;
+  reels: number;
+}
+
+export interface CreatorMonthData {
+  total_views: number;
+  yt_views: number;
+  ig_views: number;
+  videos: number;
+  reels: number;
+  yt_channels: CreatorYoutubeChannel[];
+  ig_channels: CreatorInstagramChannel[];
+}
+
+export interface DashboardCreator {
+  creator_name: string;
+  channels_count: number;
+  months: Record<string, CreatorMonthData>;
+}
+
+export interface UnitMonthTotal {
+  total_views: number;
+  yt_views: number;
+  ig_views: number;
+  reels: number;
+  videos: number;
+}
+
 export interface DashboardData {
-  unit: { id: number; name: string; poc: string };
+  unit: { id: number; name: string; poc: string | null };
   available_months: string[];
+  unit_totals: Record<string, UnitMonthTotal>;
+  creators: DashboardCreator[];
   channels: DashboardChannel[];
 }
 
@@ -64,6 +111,18 @@ export interface ScrapeRunOption {
   id: number;
   started_at: string;
   status: string;
+}
+
+export interface AvailableYoutubeChannel {
+  id: string;
+  youtube_channel_id: string;
+  title: string;
+  custom_url: string;
+  thumbnail_url?: string;
+  category?: string;
+  current_subscribers?: number;
+  current_views?: number;
+  current_video_count?: number;
 }
 
 export async function fetchMicroUnits(): Promise<MicroUnit[]> {
@@ -99,7 +158,16 @@ export async function deleteMicroUnit(id: number): Promise<void> {
   return handleResponse<void>(res);
 }
 
-export async function addChannel(unitId: number, body: { username: string; instagram_id?: string; creator_name?: string }): Promise<MicroUnitChannel> {
+export async function addChannel(
+  unitId: number, 
+  body: { 
+    platform?: "INSTAGRAM" | "YOUTUBE";
+    username: string; 
+    instagram_id?: string; 
+    creator_name?: string;
+    channel_title?: string;
+  }
+): Promise<MicroUnitChannel> {
   const res = await fetch(`${API_URL}/api/micro-units/${unitId}/channels`, {
     method: "POST",
     headers: authHeaders(),
@@ -121,6 +189,13 @@ export async function fetchAvailableProfiles(): Promise<{ id: string; username: 
     headers: authHeaders(),
   });
   return handleResponse<{ id: string; username: string; creator_name: string }[]>(res);
+}
+
+export async function fetchAvailableYoutubeChannels(): Promise<AvailableYoutubeChannel[]> {
+  const res = await fetch(`${API_URL}/api/micro-units/youtube-channels`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<AvailableYoutubeChannel[]>(res);
 }
 
 export async function calculateMonthlyMetrics(body: CalculateBody): Promise<any> {

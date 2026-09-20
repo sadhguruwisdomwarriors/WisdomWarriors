@@ -111,18 +111,34 @@ export default function AdminView() {
               <div className="flex-1 mb-4">
                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Channels ({unit.channels.length})</h4>
                 <ul className="space-y-2">
-                  {unit.channels.slice(0, 5).map(channel => (
-                    <li key={channel.id} className="flex items-center gap-2 text-sm text-gray-300">
-                      <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                          <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                        </svg>
-                      </div>
-                      <span className="truncate" title={channel.username}>@{channel.username}</span>
-                    </li>
-                  ))}
+                  {unit.channels.slice(0, 5).map(channel => {
+                    const isYT = (channel.platform || "INSTAGRAM").toUpperCase() === "YOUTUBE";
+                    return (
+                      <li key={channel.id} className="flex items-center gap-2 text-sm text-gray-300">
+                        {isYT ? (
+                          <div className="w-5 h-5 rounded-full bg-red-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-red-900/40">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="white">
+                              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                            </svg>
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                              <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                              <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                            </svg>
+                          </div>
+                        )}
+                        <span className="truncate" title={channel.channel_title || channel.username}>
+                          {isYT ? (channel.channel_title || channel.username) : `@${channel.username}`}
+                        </span>
+                        {channel.creator_name && channel.creator_name !== channel.username && (
+                          <span className="text-[11px] text-gray-500 truncate">({channel.creator_name})</span>
+                        )}
+                      </li>
+                    );
+                  })}
                   {unit.channels.length > 5 && (
                     <li className="text-xs text-gray-500 italic pl-7">
                       +{unit.channels.length - 5} more...

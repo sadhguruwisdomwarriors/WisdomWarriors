@@ -3,14 +3,17 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import List, Optional
+from collections import defaultdict
 from backend.db.engine import get_db
 from backend.models.user import User
 from backend.models.micro_unit import MicroUnit
 from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
 from backend.models.scrape_run import ScrapeRun
+from backend.models.profile import Profile
 from backend.services.auth_service import get_current_user, require_admin, get_optional_user
 from backend.services.monthly_calculation_service import calculate_monthly_metrics
+from backend.services.youtube_read_service import fetch_available_youtube_channels, calculate_youtube_monthly_metrics
 
 router = APIRouter(prefix="/api/micro-units", tags=["micro-units"])
 
@@ -22,12 +25,12 @@ class MicroUnitUpdate(BaseModel):
     name: Optional[str] = None
     poc_user_id: Optional[int] = None
 
-from backend.models.profile import Profile
-
 class ChannelAdd(BaseModel):
+    platform: Optional[str] = "INSTAGRAM" # "INSTAGRAM" or "YOUTUBE"
     username: str
     instagram_id: Optional[str] = None
     creator_name: Optional[str] = None
+    channel_title: Optional[str] = None
 
 class MonthCalculation(BaseModel):
     month: int
@@ -40,7 +43,7 @@ class CalculateRequest(BaseModel):
 
 @router.get("")
 async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
-    result = await db.execute(select(MicroUnit))
+    result = await db.execute(select(MicroUnit).order_by(MicroUnit.unit_number.asc()))
     units = result.scalars().all()
     response = []
     for unit in units:
@@ -64,7 +67,17 @@ async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Opt
             "poc_user_id": unit.poc_user_id,
             "poc_name": poc_name,
             "poc": poc,
-            "channels": [{"id": c.id, "instagram_id": c.instagram_id, "username": c.username, "creator_name": c.creator_name} for c in channels]
+            "channels": [
+                {
+                    "id": c.id,
+                    "platform": getattr(c, "platform", "INSTAGRAM") or "INSTAGRAM",
+                    "instagram_id": c.instagram_id,
+                    "username": c.username,
+                    "channel_title": getattr(c, "channel_title", None) or c.username,
+                    "creator_name": c.creator_name or c.username
+                } 
+                for c in channels
+            ]
         })
     return response
 
@@ -107,6 +120,10 @@ async def list_available_profiles(db: AsyncSession = Depends(get_db)):
     profiles = result.scalars().all()
     return [{"id": p.id, "username": p.username, "creator_name": p.full_name or p.username} for p in profiles]
 
+@router.get("/youtube-channels")
+async def list_available_yt_channels():
+    return await fetch_available_youtube_channels()
+
 @router.get("/configured-runs")
 async def get_configured_runs(year: int = Query(...), db: AsyncSession = Depends(get_db)):
     prefix = f"{year}-"
@@ -136,27 +153,44 @@ async def get_configured_runs(year: int = Query(...), db: AsyncSession = Depends
 
 @router.post("/{id}/channels")
 async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    clean_username = request.username.strip().lstrip("@")
+    platform = (request.platform or "INSTAGRAM").upper()
+    clean_username = request.username.strip()
+    if platform == "INSTAGRAM":
+        clean_username = clean_username.lstrip("@")
     
     instagram_id = request.instagram_id
     creator_name = request.creator_name
+    channel_title = request.channel_title
     
-    profile_result = await db.execute(select(Profile).where(Profile.username.ilike(clean_username)))
-    profile = profile_result.scalars().first()
-    if profile:
+    if platform == "INSTAGRAM":
+        profile_result = await db.execute(select(Profile).where(Profile.username.ilike(clean_username)))
+        profile = profile_result.scalars().first()
+        if profile:
+            if not instagram_id:
+                instagram_id = profile.id
+            if not creator_name:
+                creator_name = profile.full_name
+            if not channel_title:
+                channel_title = f"@{profile.username}"
+                
         if not instagram_id:
-            instagram_id = profile.id
-        if not creator_name:
-            creator_name = profile.full_name
-            
-    if not instagram_id:
-        instagram_id = clean_username
-        
+            instagram_id = clean_username
+        if not channel_title:
+            channel_title = f"@{clean_username}"
+    else:
+        # YouTube
+        if not channel_title:
+            channel_title = clean_username
+        if not instagram_id:
+            instagram_id = clean_username
+
     channel = MicroUnitChannel(
         micro_unit_id=id,
+        platform=platform,
         instagram_id=instagram_id,
         username=clean_username,
-        creator_name=creator_name or clean_username
+        channel_title=channel_title or clean_username,
+        creator_name=creator_name or channel_title or clean_username
     )
     db.add(channel)
     await db.commit()
@@ -225,42 +259,159 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
     channels_result = await db.execute(select(MicroUnitChannel).where(MicroUnitChannel.micro_unit_id == id))
     channels = channels_result.scalars().all()
     
-    available_months = set()
-    channels_data = []
-    
-    for channel in channels:
-        metrics_result = await db.execute(
-            select(MonthlyChannelMetric)
-            .where((MonthlyChannelMetric.instagram_id == channel.instagram_id) & (MonthlyChannelMetric.year_month.startswith(str(year))))
-        )
-        metrics = metrics_result.scalars().all()
-        
-        months_data = {}
-        for metric in metrics:
-            available_months.add(metric.year_month)
-            r_count = getattr(metric, "reels_count", None)
-            s_count = getattr(metric, "static_post_count", None)
-            if r_count is None:
-                r_count = metric.post_count or 0
-            if s_count is None:
-                s_count = 0
-            months_data[metric.year_month] = {
-                "views": metric.monthly_views or 0.0,
-                "post_count": metric.post_count or 0,
-                "reels_count": r_count,
-                "static_post_count": s_count,
+    # Identify available months from Instagram calculations
+    available_months_set = set()
+    prefix = f"{year}-"
+    ig_metrics_res = await db.execute(
+        select(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month.startswith(prefix))
+    )
+    ig_all_metrics = ig_metrics_res.scalars().all()
+    ig_metrics_map = defaultdict(dict) # [instagram_id][year_month] -> metric
+    for m in ig_all_metrics:
+        available_months_set.add(m.year_month)
+        ig_metrics_map[m.instagram_id][m.year_month] = m
+
+    # If no Instagram months calculated yet, default to current month of that year or empty
+    if not available_months_set:
+        # Default to available months
+        available_months = []
+    else:
+        available_months = sorted(list(available_months_set))
+
+    # Identify YouTube channels in this unit
+    yt_channels = [c for c in channels if (getattr(c, "platform", "INSTAGRAM") or "INSTAGRAM").upper() == "YOUTUBE"]
+    yt_channel_ids = [c.username for c in yt_channels]
+
+    # Pre-calculate YouTube monthly metrics on-the-fly for available months
+    yt_metrics_cache = {} # [year_month][channel_username] -> {views, video_count, title}
+    for ym in available_months:
+        try:
+            m_num = int(ym.split("-")[1])
+            yt_res = await calculate_youtube_monthly_metrics(yt_channel_ids, year, m_num)
+            yt_metrics_cache[ym] = yt_res
+        except Exception:
+            yt_metrics_cache[ym] = {}
+
+    # Group channels by creator_name
+    creator_groups = defaultdict(list)
+    for c in channels:
+        c_name = (c.creator_name or c.channel_title or c.username or "Unassigned Creator").strip()
+        creator_groups[c_name].append(c)
+
+    creators_data = []
+    unit_totals = defaultdict(lambda: {"total_views": 0.0, "yt_views": 0.0, "ig_views": 0.0, "reels": 0, "videos": 0})
+
+    for creator_name, c_list in creator_groups.items():
+        months_dict = {}
+        for ym in available_months:
+            yt_ch_data = []
+            ig_ch_data = []
+            creator_yt_views = 0.0
+            creator_ig_views = 0.0
+            creator_videos = 0
+            creator_reels = 0
+
+            for ch in c_list:
+                platform = (getattr(ch, "platform", "INSTAGRAM") or "INSTAGRAM").upper()
+                if platform == "YOUTUBE":
+                    yt_metric = yt_metrics_cache.get(ym, {}).get(ch.username, {})
+                    v_views = float(yt_metric.get("views", 0.0) or 0.0)
+                    v_count = int(yt_metric.get("video_count", 0) or 0)
+                    title = yt_metric.get("title") or getattr(ch, "channel_title", None) or ch.username
+                    creator_yt_views += v_views
+                    creator_videos += v_count
+                    yt_ch_data.append({
+                        "id": ch.id,
+                        "channel_id": ch.username,
+                        "title": title,
+                        "views": v_views,
+                        "videos": v_count,
+                    })
+                else:
+                    # Instagram
+                    metric = ig_metrics_map.get(ch.instagram_id, {}).get(ym)
+                    if not metric:
+                        # Try matching by username
+                        metric = ig_metrics_map.get(ch.username, {}).get(ym)
+                    
+                    ig_views = float(metric.monthly_views if metric else 0.0)
+                    ig_reels = int((metric.reels_count if metric and metric.reels_count is not None else (metric.post_count if metric else 0)) or 0)
+                    creator_ig_views += ig_views
+                    creator_reels += ig_reels
+                    ig_ch_data.append({
+                        "id": ch.id,
+                        "username": ch.username,
+                        "creator_name": ch.creator_name or ch.username,
+                        "views": ig_views,
+                        "reels": ig_reels,
+                    })
+
+            total_views = creator_yt_views + creator_ig_views
+            months_dict[ym] = {
+                "total_views": total_views,
+                "yt_views": creator_yt_views,
+                "ig_views": creator_ig_views,
+                "videos": creator_videos,
+                "reels": creator_reels,
+                "yt_channels": yt_ch_data,
+                "ig_channels": ig_ch_data,
             }
-            
+
+            # Accumulate to unit totals
+            unit_totals[ym]["total_views"] += total_views
+            unit_totals[ym]["yt_views"] += creator_yt_views
+            unit_totals[ym]["ig_views"] += creator_ig_views
+            unit_totals[ym]["videos"] += creator_videos
+            unit_totals[ym]["reels"] += creator_reels
+
+        creators_data.append({
+            "creator_name": creator_name,
+            "channels_count": len(c_list),
+            "months": months_dict
+        })
+
+    # Also build legacy channels array for backwards compatibility
+    channels_data = []
+    for channel in channels:
+        platform = (getattr(channel, "platform", "INSTAGRAM") or "INSTAGRAM").upper()
+        months_data = {}
+        for ym in available_months:
+            if platform == "YOUTUBE":
+                yt_m = yt_metrics_cache.get(ym, {}).get(channel.username, {})
+                months_data[ym] = {
+                    "views": float(yt_m.get("views", 0.0) or 0.0),
+                    "post_count": int(yt_m.get("video_count", 0) or 0),
+                    "reels_count": int(yt_m.get("video_count", 0) or 0),
+                    "static_post_count": 0,
+                }
+            else:
+                metric = ig_metrics_map.get(channel.instagram_id, {}).get(ym)
+                r_count = getattr(metric, "reels_count", None) if metric else 0
+                s_count = getattr(metric, "static_post_count", None) if metric else 0
+                if r_count is None and metric:
+                    r_count = metric.post_count or 0
+                months_data[ym] = {
+                    "views": (metric.monthly_views if metric else 0.0) or 0.0,
+                    "post_count": (metric.post_count if metric else 0) or 0,
+                    "reels_count": r_count or 0,
+                    "static_post_count": s_count or 0,
+                }
+                
         channels_data.append({
+            "id": channel.id,
+            "platform": platform,
             "instagram_id": channel.instagram_id,
             "username": channel.username,
-            "creator_name": channel.creator_name,
+            "channel_title": getattr(channel, "channel_title", None) or channel.username,
+            "creator_name": channel.creator_name or channel.username,
             "months": months_data
         })
         
     return {
         "unit": {"id": unit.id, "name": unit.name, "poc": poc_name},
-        "available_months": sorted(list(available_months)),
+        "available_months": available_months,
+        "unit_totals": dict(unit_totals),
+        "creators": creators_data,
         "channels": channels_data
     }
 
