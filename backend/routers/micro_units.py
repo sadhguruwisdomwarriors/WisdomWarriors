@@ -12,6 +12,7 @@ from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
 from backend.models.scrape_run import ScrapeRun
 from backend.models.profile import Profile
+from backend.models.scrape_profile import ScrapeProfile
 from backend.services.auth_service import get_current_user, require_admin, get_optional_user
 from backend.services.monthly_calculation_service import calculate_monthly_metrics
 from backend.services.youtube_read_service import fetch_available_youtube_channels, calculate_youtube_monthly_metrics
@@ -154,7 +155,26 @@ async def delete_creator(id: int, creator_id: int, db: AsyncSession = Depends(ge
 async def list_available_profiles(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Profile).order_by(Profile.username.asc()))
     profiles = result.scalars().all()
-    return [{"id": p.id, "username": p.username, "creator_name": p.full_name or p.username} for p in profiles]
+    profiles_dict = {
+        p.username.lower(): {
+            "id": p.id,
+            "username": p.username,
+            "creator_name": p.full_name or p.username
+        }
+        for p in profiles
+    }
+    
+    sp_result = await db.execute(select(ScrapeProfile).order_by(ScrapeProfile.username.asc()))
+    for sp in sp_result.scalars().all():
+        u_key = sp.username.lower()
+        if u_key not in profiles_dict:
+            profiles_dict[u_key] = {
+                "id": sp.instagram_id or sp.username,
+                "username": sp.username,
+                "creator_name": sp.username
+            }
+            
+    return sorted(list(profiles_dict.values()), key=lambda x: x["username"].lower())
 
 @router.get("/youtube-channels")
 async def list_available_yt_channels():
