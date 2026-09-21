@@ -126,7 +126,23 @@ async def calculate_youtube_monthly_metrics(
                 vids_in_period = json.loads(r.read().decode("utf-8"))
             metrics_by_channel[cid]["video_count"] = len(vids_in_period) if isinstance(vids_in_period, list) else 0
 
-            # 3. Fetch all videos of this channel
+            # 3. Check channel_snapshots first (Channel-level delta matching YouTube app Dashboard)
+            cs_url = f"{base_url}/rest/v1/channel_snapshots?channel_id=eq.{internal_id}&deleted_at=is.null&order=date.asc&select=date,views"
+            req = urllib.request.Request(cs_url, headers=headers)
+            with urllib.request.urlopen(req, context=_ssl_ctx, timeout=8) as r:
+                cs_snaps = json.loads(r.read().decode("utf-8"))
+
+            if cs_snaps and len(cs_snaps) > 0:
+                pre_cs = [s for s in cs_snaps if s.get("date") < start_str]
+                post_cs = [s for s in cs_snaps if s.get("date") <= end_str]
+                in_cs = [s for s in cs_snaps if start_str <= s.get("date") <= end_str]
+                if post_cs and (pre_cs or in_cs):
+                    cs_open = float(pre_cs[-1].get("views", 0) if pre_cs else in_cs[0].get("views", 0))
+                    cs_close = float(post_cs[-1].get("views", 0))
+                    metrics_by_channel[cid]["views"] = max(0.0, cs_close - cs_open)
+                    continue
+
+            # 4. Fallback to video_snapshots if channel_snapshots are not available
             all_videos = []
             offset = 0
             while True:
@@ -148,7 +164,7 @@ async def calculate_youtube_monthly_metrics(
             video_ids = [v["id"] for v in all_videos]
             video_map = {v["id"]: v for v in all_videos}
 
-            # 4. Batch query video_snapshots for these videos (chunks of 100)
+            # Batch query video_snapshots for these videos (chunks of 100)
             snaps_by_video: dict[str, list[dict]] = {}
             chunk_size = 100
             for i in range(0, len(video_ids), chunk_size):
@@ -171,7 +187,7 @@ async def calculate_youtube_monthly_metrics(
                         break
                     s_offset += 1000
 
-            # 5. Compute period views delta per video
+            # Compute period views delta per video
             total_views = 0.0
             for vid, snaps in snaps_by_video.items():
                 if not snaps:
@@ -203,20 +219,6 @@ async def calculate_youtube_monthly_metrics(
 
                 delta = max(0.0, closing_views - opening_views)
                 total_views += delta
-
-            # 6. Fallback to channel_snapshots if no video snapshots exist
-            if total_views == 0.0 and not snaps_by_video:
-                cs_url = f"{base_url}/rest/v1/channel_snapshots?channel_id=eq.{internal_id}&deleted_at=is.null&order=date.asc&select=date,views"
-                req = urllib.request.Request(cs_url, headers=headers)
-                with urllib.request.urlopen(req, context=_ssl_ctx, timeout=8) as r:
-                    cs_snaps = json.loads(r.read().decode("utf-8"))
-                if cs_snaps:
-                    pre_cs = [s for s in cs_snaps if s.get("date") < start_str]
-                    post_cs = [s for s in cs_snaps if s.get("date") <= end_str]
-                    in_cs = [s for s in cs_snaps if start_str <= s.get("date") <= end_str]
-                    cs_open = pre_cs[-1].get("views", 0) if pre_cs else (in_cs[0].get("views", 0) if in_cs else 0)
-                    cs_close = post_cs[-1].get("views", 0) if post_cs else (cs_snaps[-1].get("views", 0) if cs_snaps else cs_open)
-                    total_views = max(0.0, float(cs_close) - float(cs_open))
 
             metrics_by_channel[cid]["views"] = total_views
 
