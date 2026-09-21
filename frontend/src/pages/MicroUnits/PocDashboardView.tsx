@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDashboard } from "../../api/microUnits";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Award, Video, Film } from "lucide-react";
+import { Award, Film } from "lucide-react";
 
 const YoutubeIcon = ({ size = 16, className = "" }: { size?: number; className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -54,6 +54,15 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
   const { available_months, creators = [], unit_totals = {} } = dashboard;
   const sortedMonths = [...available_months].sort();
 
+  const pocName = dashboard.unit.poc ? dashboard.unit.poc.trim().toLowerCase() : "";
+  const sortedCreators = [...creators].sort((a, b) => {
+    const isAPoc = !!(pocName && a.creator_name.trim().toLowerCase() === pocName);
+    const isBPoc = !!(pocName && b.creator_name.trim().toLowerCase() === pocName);
+    if (isAPoc && !isBPoc) return -1;
+    if (!isAPoc && isBPoc) return 1;
+    return a.creator_name.localeCompare(b.creator_name);
+  });
+
   const getMonthName = (ym: string) => {
     const m = ym.slice(5, 7);
     return `${MONTH_ABBR[m] || ym} ${ym.slice(0, 4)}`;
@@ -71,7 +80,7 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
   // Build Chart Data per Creator
   const chartData = sortedMonths.map(monthStr => {
     const dataPoint: any = { month: ymShort(monthStr) };
-    creators.forEach(creator => {
+    sortedCreators.forEach(creator => {
       const mData = creator.months?.[monthStr];
       dataPoint[`${creator.creator_name}_views`] = mData ? mData.total_views : 0;
       dataPoint[`${creator.creator_name}_uploads`] = mData ? (mData.videos + mData.reels) : 0;
@@ -139,13 +148,13 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
               <span className="text-xs font-semibold text-red-300 uppercase tracking-wider flex items-center gap-1.5">
                 <YoutubeIcon size={14} className="text-red-500" /> YouTube Views
               </span>
-              <Video className="text-red-400" size={18} />
+              <Film className="text-red-400" size={18} />
             </div>
             <div className="text-2xl font-extrabold text-white mt-1">
               {formatNumber(latestTotals.yt_views)}
             </div>
             <div className="text-xs text-gray-400 mt-1">
-              {latestTotals.videos} videos uploaded
+              {latestTotals.videos} videos credited
             </div>
           </div>
 
@@ -187,27 +196,23 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {creators.map((creator, cIdx) => {
-              const isPoc = !!(dashboard?.unit?.poc && creator.creator_name.trim().toLowerCase() === dashboard.unit.poc.trim().toLowerCase());
+            {sortedCreators.map((creator, cIdx) => {
+              const isPoc = !!(pocName && creator.creator_name.trim().toLowerCase() === pocName);
               return (
-                <tr key={cIdx} className={`transition-colors ${isPoc ? "bg-amber-950/10 hover:bg-amber-950/20" : "hover:bg-gray-850/40"}`}>
+                <tr key={cIdx} className={`transition-colors ${isPoc ? "bg-purple-950/20 hover:bg-purple-950/30" : "hover:bg-gray-850/40"}`}>
                   {/* Left Column: Creator Profile / Name */}
                   <td className="p-4 align-top border-r border-gray-800 bg-gray-900/60">
                     <div className="space-y-1">
                       <div className="text-white font-bold text-base flex items-center gap-2">
-                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border ${
-                          isPoc 
-                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40" 
-                            : "bg-purple-900/60 text-purple-200 border-purple-700/50"
-                        }`}>
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border bg-purple-900/60 text-purple-200 border-purple-700/50">
                           {creator.creator_name.charAt(0).toUpperCase()}
                         </span>
                         <span className="truncate" title={creator.creator_name}>
                           {creator.creator_name}
                         </span>
                         {isPoc && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex-shrink-0">
-                            👑 POC
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-900/80 text-purple-200 border border-purple-600/60 flex-shrink-0 uppercase tracking-wide">
+                            POC
                           </span>
                         )}
                       </div>

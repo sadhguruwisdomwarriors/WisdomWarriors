@@ -264,16 +264,16 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
         <div className="overflow-y-auto flex-1 pr-1 space-y-5">
           {/* POC Quick Channels Banner (if POC assigned) */}
           {pocName && (
-            <div className="bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-gray-950 border border-amber-600/40 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+            <div className="bg-gradient-to-r from-purple-950/40 via-purple-900/20 to-gray-950 border border-purple-700/40 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-900/60 text-amber-200 border border-amber-600/50 flex items-center justify-center text-base font-bold shadow-inner flex-shrink-0">
-                  👑
+                <div className="w-9 h-9 rounded-xl bg-purple-900/60 text-purple-200 border border-purple-600/50 flex items-center justify-center text-sm font-bold shadow-inner flex-shrink-0">
+                  {pocName.charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-white font-bold text-sm">{pocName}</span>
-                    <span className="bg-amber-950 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/60 uppercase tracking-wide">
-                      Unit POC
+                    <span className="bg-purple-950 text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-700/60 uppercase tracking-wide">
+                      POC
                     </span>
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">
@@ -284,7 +284,7 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
               <button
                 type="button"
                 onClick={() => setActiveCreatorId(activeCreatorId === (creatorMap[pocName]?.id || pocName) ? null : (creatorMap[pocName]?.id || pocName))}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5 flex-shrink-0"
+                className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-600 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5 flex-shrink-0"
               >
                 <Plus size={14} />
                 {activeCreatorId === (creatorMap[pocName]?.id || pocName) ? "Close" : "+ Add POC Channels"}
@@ -348,30 +348,24 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                       key={cIdx}
                       className={`border rounded-xl overflow-hidden shadow-md transition-all ${
                         isPoc 
-                          ? "bg-gray-950/95 border-amber-700/40" 
+                          ? "bg-gray-950/95 border-purple-700/40" 
                           : "bg-gray-950/90 border-gray-800"
                       }`}
                     >
                       {/* Creator Header Bar */}
                       <div className={`p-3.5 border-b flex items-center justify-between ${
-                        isPoc ? "bg-amber-950/20 border-amber-800/30" : "bg-gray-900/90 border-gray-800"
+                        isPoc ? "bg-purple-950/20 border-purple-800/30" : "bg-gray-900/90 border-gray-800"
                       }`}>
                         <div className="flex items-center gap-2.5">
-                          {isPoc ? (
-                            <span className="w-7 h-7 rounded-full bg-amber-900/70 text-amber-200 border border-amber-600/60 flex items-center justify-center text-xs font-bold">
-                              👑
-                            </span>
-                          ) : (
-                            <span className="w-7 h-7 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700/50 flex items-center justify-center text-xs font-bold">
-                              {creator.name.charAt(0).toUpperCase()}
-                            </span>
-                          )}
+                          <span className="w-7 h-7 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700/50 flex items-center justify-center text-xs font-bold">
+                            {creator.name.charAt(0).toUpperCase()}
+                          </span>
                           <div>
                             <div className="text-white font-bold text-sm flex items-center gap-2">
                               <span>{creator.name}</span>
                               {isPoc && (
-                                <span className="bg-amber-950 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/60 uppercase tracking-wide">
-                                  👑 Unit POC
+                                <span className="bg-purple-950 text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-700/60 uppercase tracking-wide">
+                                  POC
                                 </span>
                               )}
                             </div>
