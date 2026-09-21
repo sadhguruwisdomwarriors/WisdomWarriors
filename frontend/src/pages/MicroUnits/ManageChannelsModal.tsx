@@ -178,25 +178,50 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     }
   };
 
+  const pocName = unit.poc_name || unit.poc?.full_name || null;
+
   // Group existing channels by creator
   const explicitCreators = unit.creators || [];
-  const creatorMap: Record<string, { id?: number; name: string; channels: typeof unit.channels }> = {};
+  const creatorMap: Record<string, { id?: number; name: string; isPoc?: boolean; channels: typeof unit.channels }> = {};
+
+  // If POC exists, initialize POC first
+  if (pocName) {
+    const existingPocCreator = explicitCreators.find(c => c.name.toLowerCase() === pocName.toLowerCase());
+    creatorMap[pocName] = { 
+      id: existingPocCreator?.id, 
+      name: pocName, 
+      isPoc: true, 
+      channels: [] 
+    };
+  }
 
   // Initialize from explicit creators
   explicitCreators.forEach(cr => {
-    creatorMap[cr.name] = { id: cr.id, name: cr.name, channels: [] };
+    const isPoc = pocName && cr.name.toLowerCase() === pocName.toLowerCase();
+    if (!creatorMap[cr.name]) {
+      creatorMap[cr.name] = { id: cr.id, name: cr.name, isPoc: !!isPoc, channels: [] };
+    } else {
+      creatorMap[cr.name].id = cr.id;
+      if (isPoc) creatorMap[cr.name].isPoc = true;
+    }
   });
 
   // Distribute channels
   unit.channels.forEach(ch => {
     const cName = ch.creator_name || ch.channel_title || ch.username || "Unassigned Creator";
+    const isPoc = pocName && cName.toLowerCase() === pocName.toLowerCase();
     if (!creatorMap[cName]) {
-      creatorMap[cName] = { id: ch.creator_id || undefined, name: cName, channels: [] };
+      creatorMap[cName] = { id: ch.creator_id || undefined, name: cName, isPoc: !!isPoc, channels: [] };
     }
     creatorMap[cName].channels.push(ch);
   });
 
-  const creatorList = Object.values(creatorMap);
+  // Sort so POC appears first, followed by alphabetical creators
+  const creatorList = Object.values(creatorMap).sort((a, b) => {
+    if (a.isPoc && !b.isPoc) return -1;
+    if (!a.isPoc && b.isPoc) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   // Filter already assigned handles
   const existingKeys = new Set(unit.channels.map(c => `${c.platform || 'INSTAGRAM'}_${c.username.toLowerCase()}`));
@@ -225,7 +250,7 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
               </span>
             </h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Add Content Creators first, then assign multiple YouTube and Instagram channels to each
+              Add Content Creators & POC channels, then assign multiple YouTube and Instagram accounts to each
             </p>
           </div>
           <button
@@ -237,6 +262,36 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
         </div>
 
         <div className="overflow-y-auto flex-1 pr-1 space-y-5">
+          {/* POC Quick Channels Banner (if POC assigned) */}
+          {pocName && (
+            <div className="bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-gray-950 border border-amber-600/40 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-900/60 text-amber-200 border border-amber-600/50 flex items-center justify-center text-base font-bold shadow-inner flex-shrink-0">
+                  👑
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-bold text-sm">{pocName}</span>
+                    <span className="bg-amber-950 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/60 uppercase tracking-wide">
+                      Unit POC
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Add & manage YouTube and Instagram channels for this unit's POC
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveCreatorId(activeCreatorId === (creatorMap[pocName]?.id || pocName) ? null : (creatorMap[pocName]?.id || pocName))}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5 flex-shrink-0"
+              >
+                <Plus size={14} />
+                {activeCreatorId === (creatorMap[pocName]?.id || pocName) ? "Close" : "+ Add POC Channels"}
+              </button>
+            </div>
+          )}
+
           {/* STEP 1: Add New Content Creator Form */}
           <div className="bg-gray-950/80 border border-purple-900/40 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-bold text-purple-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -268,7 +323,7 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Users size={14} />
-                Content Creators in this Unit ({creatorList.length})
+                Creators & POC in this Unit ({creatorList.length})
               </h3>
               <span className="text-xs text-gray-500">
                 Total Channels: {unit.channels.length}
@@ -284,22 +339,42 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
               <div className="space-y-4">
                 {creatorList.map((creator, cIdx) => {
                   const isExpanded = activeCreatorId === (creator.id || creator.name);
+                  const isPoc = !!creator.isPoc;
                   const ytCount = creator.channels.filter(c => (c.platform || "INSTAGRAM").toUpperCase() === "YOUTUBE").length;
                   const igCount = creator.channels.filter(c => (c.platform || "INSTAGRAM").toUpperCase() === "INSTAGRAM").length;
 
                   return (
                     <div
                       key={cIdx}
-                      className="bg-gray-950/90 border border-gray-800 rounded-xl overflow-hidden shadow-md"
+                      className={`border rounded-xl overflow-hidden shadow-md transition-all ${
+                        isPoc 
+                          ? "bg-gray-950/95 border-amber-700/40" 
+                          : "bg-gray-950/90 border-gray-800"
+                      }`}
                     >
                       {/* Creator Header Bar */}
-                      <div className="p-3.5 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between">
+                      <div className={`p-3.5 border-b flex items-center justify-between ${
+                        isPoc ? "bg-amber-950/20 border-amber-800/30" : "bg-gray-900/90 border-gray-800"
+                      }`}>
                         <div className="flex items-center gap-2.5">
-                          <span className="w-7 h-7 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700/50 flex items-center justify-center text-xs font-bold">
-                            {creator.name.charAt(0).toUpperCase()}
-                          </span>
+                          {isPoc ? (
+                            <span className="w-7 h-7 rounded-full bg-amber-900/70 text-amber-200 border border-amber-600/60 flex items-center justify-center text-xs font-bold">
+                              👑
+                            </span>
+                          ) : (
+                            <span className="w-7 h-7 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700/50 flex items-center justify-center text-xs font-bold">
+                              {creator.name.charAt(0).toUpperCase()}
+                            </span>
+                          )}
                           <div>
-                            <div className="text-white font-bold text-sm">{creator.name}</div>
+                            <div className="text-white font-bold text-sm flex items-center gap-2">
+                              <span>{creator.name}</span>
+                              {isPoc && (
+                                <span className="bg-amber-950 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/60 uppercase tracking-wide">
+                                  👑 Unit POC
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[11px] text-gray-400 flex items-center gap-2 mt-0.5">
                               <span className="flex items-center gap-1 text-red-300">
                                 <YoutubeIcon size={11} className="text-red-500" /> {ytCount} YouTube
@@ -316,13 +391,17 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                           <button
                             type="button"
                             onClick={() => setActiveCreatorId(isExpanded ? null : (creator.id || creator.name))}
-                            className="px-3 py-1.5 bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 text-xs font-medium rounded-lg border border-purple-800/50 transition-colors flex items-center gap-1"
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1 ${
+                              isPoc 
+                                ? "bg-amber-950/60 hover:bg-amber-900/80 text-amber-200 border-amber-700/50" 
+                                : "bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 border-purple-800/50"
+                            }`}
                           >
                             <Plus size={13} />
                             {isExpanded ? "Close" : "+ Add Channels"}
                             {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                           </button>
-                          {creator.id && (
+                          {creator.id && !isPoc && (
                             <button
                               onClick={() => {
                                 if (confirm(`Remove creator "${creator.name}" and all their assigned channels?`)) {

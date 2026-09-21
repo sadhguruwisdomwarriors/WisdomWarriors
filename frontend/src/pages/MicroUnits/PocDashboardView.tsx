@@ -187,24 +187,35 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {creators.map((creator, cIdx) => (
-              <tr key={cIdx} className="hover:bg-gray-850/40 transition-colors">
-                {/* Left Column: Creator Profile / Name */}
-                <td className="p-4 align-top border-r border-gray-800 bg-gray-900/60">
-                  <div className="space-y-1">
-                    <div className="text-white font-bold text-base flex items-center gap-2">
-                      <span className="w-7 h-7 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700/50 flex items-center justify-center text-xs font-bold">
-                        {creator.creator_name.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="truncate" title={creator.creator_name}>
-                        {creator.creator_name}
-                      </span>
+            {creators.map((creator, cIdx) => {
+              const isPoc = !!(dashboard?.unit?.poc && creator.creator_name.trim().toLowerCase() === dashboard.unit.poc.trim().toLowerCase());
+              return (
+                <tr key={cIdx} className={`transition-colors ${isPoc ? "bg-amber-950/10 hover:bg-amber-950/20" : "hover:bg-gray-850/40"}`}>
+                  {/* Left Column: Creator Profile / Name */}
+                  <td className="p-4 align-top border-r border-gray-800 bg-gray-900/60">
+                    <div className="space-y-1">
+                      <div className="text-white font-bold text-base flex items-center gap-2">
+                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border ${
+                          isPoc 
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40" 
+                            : "bg-purple-900/60 text-purple-200 border-purple-700/50"
+                        }`}>
+                          {creator.creator_name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="truncate" title={creator.creator_name}>
+                          {creator.creator_name}
+                        </span>
+                        {isPoc && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex-shrink-0">
+                            👑 POC
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 pl-9">
+                        {creator.channels_count} {creator.channels_count === 1 ? "Channel" : "Channels"}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-400 pl-9">
-                      {creator.channels_count} {creator.channels_count === 1 ? "Channel" : "Channels"}
-                    </div>
-                  </div>
-                </td>
+                  </td>
 
                 {/* Monthly Columns (Spreadsheet 2-Column Split Box) */}
                 {sortedMonths.map(month => {
@@ -294,8 +305,9 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                     </td>
                   );
                 })}
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
 
             {creators.length === 0 && (
               <tr>

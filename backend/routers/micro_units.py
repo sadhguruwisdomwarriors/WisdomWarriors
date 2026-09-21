@@ -225,6 +225,17 @@ async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(g
         cr_obj = cr_res.scalars().first()
         if cr_obj:
             creator_name = cr_obj.name
+    elif creator_name and creator_name.strip():
+        # Check if creator already exists by name in this micro unit
+        clean_cr_name = creator_name.strip()
+        cr_res = await db.execute(select(MicroUnitCreator).where(MicroUnitCreator.micro_unit_id == id, MicroUnitCreator.name.ilike(clean_cr_name)))
+        cr_obj = cr_res.scalars().first()
+        if not cr_obj:
+            cr_obj = MicroUnitCreator(micro_unit_id=id, name=clean_cr_name)
+            db.add(cr_obj)
+            await db.flush()
+        creator_id = cr_obj.id
+        creator_name = cr_obj.name
     
     if platform == "INSTAGRAM":
         profile_result = await db.execute(select(Profile).where(Profile.username.ilike(clean_username)))
