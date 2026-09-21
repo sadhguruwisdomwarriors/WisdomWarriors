@@ -37,6 +37,7 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
   // Channel add states for active creator
   const [platform, setPlatform] = useState<"INSTAGRAM" | "YOUTUBE">("INSTAGRAM");
   const [selectedProfile, setSelectedProfile] = useState("");
+  const [igSearchTerm, setIgSearchTerm] = useState("");
   const [customIgUsername, setCustomIgUsername] = useState("");
   const [isCustomIg, setIsCustomIg] = useState(false);
 
@@ -94,8 +95,10 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
       setSelectedProfile("");
+      setIgSearchTerm("");
       setCustomIgUsername("");
       setSelectedYtChannel("");
+      setYtSearchTerm("");
       setCustomYtId("");
       setCustomYtTitle("");
     },
@@ -201,6 +204,9 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
   const unassignedProfiles = availableProfiles.filter(
     p => !existingKeys.has(`INSTAGRAM_${p.username.toLowerCase()}`)
   );
+
+  const filteredIgProfiles = unassignedProfiles
+    .filter(p => !igSearchTerm || p.username.toLowerCase().includes(igSearchTerm.toLowerCase()) || (p.creator_name && p.creator_name.toLowerCase().includes(igSearchTerm.toLowerCase())));
 
   const filteredYtChannels = availableYtChannels
     .filter(c => !existingKeys.has(`YOUTUBE_${(c.youtube_channel_id || c.id).toLowerCase()}`))
@@ -424,19 +430,28 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                   </button>
                                 </div>
                                 {!isCustomIg ? (
-                                  <select
-                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-purple-500"
-                                    value={selectedProfile}
-                                    onChange={(e) => setSelectedProfile(e.target.value)}
-                                    disabled={loadingProfiles}
-                                  >
-                                    <option value="">-- Choose Instagram profile --</option>
-                                    {unassignedProfiles.map((p) => (
-                                      <option key={p.id} value={p.username}>
-                                        @{p.username} {p.creator_name ? `(${p.creator_name})` : ""}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  <div className="space-y-1.5">
+                                    <input
+                                      type="text"
+                                      placeholder="Filter Instagram profiles by username or name..."
+                                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-purple-500"
+                                      value={igSearchTerm}
+                                      onChange={(e) => setIgSearchTerm(e.target.value)}
+                                    />
+                                    <select
+                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-purple-500"
+                                      value={selectedProfile}
+                                      onChange={(e) => setSelectedProfile(e.target.value)}
+                                      disabled={loadingProfiles}
+                                    >
+                                      <option value="">-- Choose Instagram profile ({filteredIgProfiles.length} available) --</option>
+                                      {filteredIgProfiles.map((p) => (
+                                        <option key={p.id} value={p.username}>
+                                          @{p.username} {p.creator_name ? `(${p.creator_name})` : ""}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
                                 ) : (
                                   <input
                                     type="text"
