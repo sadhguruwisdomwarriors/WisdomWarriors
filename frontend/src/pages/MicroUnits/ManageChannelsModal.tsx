@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, X, UserPlus, Users, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, X, UserPlus, Users, ChevronDown, ChevronUp, Search } from "lucide-react";
 import { 
   addCreator,
   deleteCreator,
@@ -431,13 +431,25 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                 </div>
                                 {!isCustomIg ? (
                                   <div className="space-y-1.5">
-                                    <input
-                                      type="text"
-                                      placeholder="Filter Instagram profiles by username or name..."
-                                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                                      value={igSearchTerm}
-                                      onChange={(e) => setIgSearchTerm(e.target.value)}
-                                    />
+                                    <div className="relative flex items-center">
+                                      <Search size={13} className="absolute left-2.5 text-gray-500 pointer-events-none" />
+                                      <input
+                                        type="text"
+                                        placeholder="Search Instagram profiles by username or name..."
+                                        className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-8 pr-7 py-1.5 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                                        value={igSearchTerm}
+                                        onChange={(e) => setIgSearchTerm(e.target.value)}
+                                      />
+                                      {igSearchTerm && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setIgSearchTerm("")}
+                                          className="absolute right-2 text-gray-500 hover:text-gray-300 p-0.5"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      )}
+                                    </div>
                                     <select
                                       className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-purple-500"
                                       value={selectedProfile}
@@ -488,13 +500,25 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                 </div>
                                 {!isCustomYt ? (
                                   <div className="space-y-1.5">
-                                    <input
-                                      type="text"
-                                      placeholder="Filter YouTube channels by title..."
-                                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-red-500"
-                                      value={ytSearchTerm}
-                                      onChange={(e) => setYtSearchTerm(e.target.value)}
-                                    />
+                                    <div className="relative flex items-center">
+                                      <Search size={13} className="absolute left-2.5 text-gray-500 pointer-events-none" />
+                                      <input
+                                        type="text"
+                                        placeholder="Search YouTube channels by title or handle..."
+                                        className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-8 pr-7 py-1.5 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-red-500 transition-colors"
+                                        value={ytSearchTerm}
+                                        onChange={(e) => setYtSearchTerm(e.target.value)}
+                                      />
+                                      {ytSearchTerm && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setYtSearchTerm("")}
+                                          className="absolute right-2 text-gray-500 hover:text-gray-300 p-0.5"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      )}
+                                    </div>
                                     <select
                                       className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-red-500"
                                       value={selectedYtChannel}
