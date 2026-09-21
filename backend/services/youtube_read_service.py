@@ -126,7 +126,8 @@ async def calculate_youtube_monthly_metrics(
                 vids_in_period = json.loads(r.read().decode("utf-8"))
             metrics_by_channel[cid]["video_count"] = len(vids_in_period) if isinstance(vids_in_period, list) else 0
 
-            # 3. Check channel_snapshots first (Channel-level delta matching YouTube app Dashboard)
+            # 3. Check channel_snapshots (Channel-level delta)
+            cs_delta = 0.0
             cs_url = f"{base_url}/rest/v1/channel_snapshots?channel_id=eq.{internal_id}&deleted_at=is.null&order=date.asc&select=date,views"
             req = urllib.request.Request(cs_url, headers=headers)
             with urllib.request.urlopen(req, context=_ssl_ctx, timeout=8) as r:
@@ -139,10 +140,9 @@ async def calculate_youtube_monthly_metrics(
                 if post_cs and (pre_cs or in_cs):
                     cs_open = float(pre_cs[-1].get("views", 0) if pre_cs else in_cs[0].get("views", 0))
                     cs_close = float(post_cs[-1].get("views", 0))
-                    metrics_by_channel[cid]["views"] = max(0.0, cs_close - cs_open)
-                    continue
+                    cs_delta = max(0.0, cs_close - cs_open)
 
-            # 4. Fallback to video_snapshots if channel_snapshots are not available
+            # 4. Fetch all catalog videos for this channel to calculate video_snapshots delta
             all_videos = []
             offset = 0
             while True:
@@ -157,70 +157,68 @@ async def calculate_youtube_monthly_metrics(
                     break
                 offset += 1000
 
-            if not all_videos:
-                metrics_by_channel[cid]["views"] = 0.0
-                continue
+            video_views = 0.0
+            if all_videos:
+                video_ids = [v["id"] for v in all_videos]
+                video_map = {v["id"]: v for v in all_videos}
 
-            video_ids = [v["id"] for v in all_videos]
-            video_map = {v["id"]: v for v in all_videos}
+                # Batch query video_snapshots for these videos (chunks of 100)
+                snaps_by_video: dict[str, list[dict]] = {}
+                chunk_size = 100
+                for i in range(0, len(video_ids), chunk_size):
+                    chunk = video_ids[i:i + chunk_size]
+                    in_str = urllib.parse.quote(f"({','.join(chunk)})")
+                    s_offset = 0
+                    while True:
+                        s_url = f"{base_url}/rest/v1/video_snapshots?video_id=in.{in_str}&deleted_at=is.null&order=date.asc&select=video_id,date,views&limit=1000&offset={s_offset}"
+                        req = urllib.request.Request(s_url, headers=headers)
+                        with urllib.request.urlopen(req, context=_ssl_ctx, timeout=10) as r:
+                            s_batch = json.loads(r.read().decode("utf-8"))
+                        if not s_batch or not isinstance(s_batch, list):
+                            break
+                        for s in s_batch:
+                            vid = s.get("video_id")
+                            if vid not in snaps_by_video:
+                                snaps_by_video[vid] = []
+                            snaps_by_video[vid].append(s)
+                        if len(s_batch) < 1000:
+                            break
+                        s_offset += 1000
 
-            # Batch query video_snapshots for these videos (chunks of 100)
-            snaps_by_video: dict[str, list[dict]] = {}
-            chunk_size = 100
-            for i in range(0, len(video_ids), chunk_size):
-                chunk = video_ids[i:i + chunk_size]
-                in_str = urllib.parse.quote(f"({','.join(chunk)})")
-                s_offset = 0
-                while True:
-                    s_url = f"{base_url}/rest/v1/video_snapshots?video_id=in.{in_str}&deleted_at=is.null&order=date.asc&select=video_id,date,views&limit=1000&offset={s_offset}"
-                    req = urllib.request.Request(s_url, headers=headers)
-                    with urllib.request.urlopen(req, context=_ssl_ctx, timeout=10) as r:
-                        s_batch = json.loads(r.read().decode("utf-8"))
-                    if not s_batch or not isinstance(s_batch, list):
-                        break
-                    for s in s_batch:
-                        vid = s.get("video_id")
-                        if vid not in snaps_by_video:
-                            snaps_by_video[vid] = []
-                        snaps_by_video[vid].append(s)
-                    if len(s_batch) < 1000:
-                        break
-                    s_offset += 1000
+                # Compute period views delta per video
+                for vid, snaps in snaps_by_video.items():
+                    if not snaps:
+                        continue
 
-            # Compute period views delta per video
-            total_views = 0.0
-            for vid, snaps in snaps_by_video.items():
-                if not snaps:
-                    continue
+                    closing_snaps = [s for s in snaps if s.get("date") <= end_str]
+                    if not closing_snaps:
+                        continue
+                    closing_views = float(closing_snaps[-1].get("views") or 0)
 
-                closing_snaps = [s for s in snaps if s.get("date") <= end_str]
-                if not closing_snaps:
-                    continue
-                closing_views = float(closing_snaps[-1].get("views") or 0)
+                    pre_start_snaps = [s for s in snaps if s.get("date") < start_str]
+                    in_range_snaps = [s for s in snaps if start_str <= s.get("date") <= end_str]
 
-                pre_start_snaps = [s for s in snaps if s.get("date") < start_str]
-                in_range_snaps = [s for s in snaps if start_str <= s.get("date") <= end_str]
+                    v_info = video_map.get(vid, {})
+                    pub_str = v_info.get("published_at")
+                    first_snap_str = snaps[0].get("date")
 
-                v_info = video_map.get(vid, {})
-                pub_str = v_info.get("published_at")
-                first_snap_str = snaps[0].get("date")
-
-                if pre_start_snaps:
-                    opening_views = float(pre_start_snaps[-1].get("views") or 0)
-                else:
-                    pub_ms = _parse_iso(pub_str)
-                    first_snap_ms = _parse_iso(first_snap_str)
-                    if pub_ms is not None and first_snap_ms is not None and (first_snap_ms - pub_ms) <= GRACE_MS:
-                        opening_views = 0.0
-                    elif in_range_snaps:
-                        opening_views = float(in_range_snaps[0].get("views") or 0)
+                    if pre_start_snaps:
+                        opening_views = float(pre_start_snaps[-1].get("views") or 0)
                     else:
-                        opening_views = 0.0
+                        pub_ms = _parse_iso(pub_str)
+                        first_snap_ms = _parse_iso(first_snap_str)
+                        if pub_ms is not None and first_snap_ms is not None and (first_snap_ms - pub_ms) <= GRACE_MS:
+                            opening_views = 0.0
+                        elif in_range_snaps:
+                            opening_views = float(in_range_snaps[0].get("views") or 0)
+                        else:
+                            opening_views = 0.0
 
-                delta = max(0.0, closing_views - opening_views)
-                total_views += delta
+                    delta = max(0.0, closing_views - opening_views)
+                    video_views += delta
 
-            metrics_by_channel[cid]["views"] = total_views
+            # Take the maximum of video snapshots and channel snapshots delta
+            metrics_by_channel[cid]["views"] = max(video_views, cs_delta)
 
         except Exception as ch_err:
             logger.error(f"Error calculating metrics for YouTube channel {cid}: {ch_err}")
