@@ -4,6 +4,7 @@ import logging
 import urllib.request
 import urllib.parse
 import ssl
+from datetime import datetime
 from typing import Any
 from backend.config import get_settings
 
@@ -14,6 +15,8 @@ _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
 
+GRACE_MS = 2 * 24 * 3600 * 1000  # 2 days fresh tracking grace period
+
 def _get_rest_headers():
     settings = get_settings()
     key = settings.youtube_supabase_key or ""
@@ -22,6 +25,15 @@ def _get_rest_headers():
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json"
     }
+
+def _parse_iso(dt_str: str | None) -> float | None:
+    if not dt_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        return dt.timestamp() * 1000
+    except Exception:
+        return None
 
 async def fetch_available_youtube_channels() -> list[dict[str, Any]]:
     """
@@ -64,7 +76,8 @@ async def calculate_youtube_monthly_metrics(
     month: int
 ) -> dict[str, dict[str, Any]]:
     """
-    Computes period views growth and video upload count for the specified YouTube channels in a given month.
+    Computes period views growth and video upload count for the specified YouTube channels in a given month,
+    faithfully matching the exact Channel Report logic from the YouTube web app.
     channel_ids can contain internal ID, youtube_channel_id, or custom_url.
     Returns: { channel_identifier: { "views": float, "video_count": int, "title": str } }
     """
@@ -84,18 +97,18 @@ async def calculate_youtube_monthly_metrics(
         return metrics_by_channel
 
     _, last_day = calendar.monthrange(year, month)
-    start_str = f"{year}-{month:02d}-01T00:00:00Z"
-    end_str = f"{year}-{month:02d}-{last_day:02d}T23:59:59Z"
+    start_str = f"{year}-{month:02d}-01T00:00:00.000Z"
+    end_str = f"{year}-{month:02d}-{last_day:02d}T23:59:59.999Z"
 
     headers = _get_rest_headers()
 
     for cid in channel_ids:
         try:
             # 1. Query channel metadata
-            or_filter = urllib.parse.quote(f"(id.eq.{cid},youtube_channel_id.eq.{cid},custom_url.eq.{cid})")
-            c_url = f"{base_url}/rest/v1/channels?or={or_filter}&select=id,youtube_channel_id,title,custom_url,current_views"
+            or_filter = urllib.parse.quote(f"(id.eq.{cid},youtube_channel_id.eq.{cid},custom_url.eq.{cid},title.eq.{cid})")
+            c_url = f"{base_url}/rest/v1/channels?or={or_filter}&deleted_at=is.null&select=id,youtube_channel_id,title,custom_url,current_views"
             req = urllib.request.Request(c_url, headers=headers)
-            with urllib.request.urlopen(req, context=_ssl_ctx, timeout=8) as r:
+            with urllib.request.urlopen(req, context=_ssl_ctx, timeout=10) as r:
                 ch_data = json.loads(r.read().decode("utf-8"))
             
             if not ch_data:
@@ -106,31 +119,106 @@ async def calculate_youtube_monthly_metrics(
             title = ch.get("title") or ch.get("custom_url") or ch.get("youtube_channel_id") or cid
             metrics_by_channel[cid]["title"] = title
 
-            # 2. Count videos published in the target month
-            v_url = f"{base_url}/rest/v1/videos?channel_id=eq.{internal_id}&published_at=gte.{start_str}&published_at=lte.{end_str}&select=id"
+            # 2. Count videos published in the target month (videosInPeriod)
+            v_url = f"{base_url}/rest/v1/videos?channel_id=eq.{internal_id}&published_at=gte.{start_str}&published_at=lte.{end_str}&deleted_at=is.null&select=id"
             v_req = urllib.request.Request(v_url, headers=headers)
-            with urllib.request.urlopen(v_req, context=_ssl_ctx, timeout=8) as r:
-                vids = json.loads(r.read().decode("utf-8"))
-                metrics_by_channel[cid]["video_count"] = len(vids)
+            with urllib.request.urlopen(v_req, context=_ssl_ctx, timeout=10) as r:
+                vids_in_period = json.loads(r.read().decode("utf-8"))
+            metrics_by_channel[cid]["video_count"] = len(vids_in_period) if isinstance(vids_in_period, list) else 0
 
-            # 3. Calculate period views growth using channel_snapshots
-            s_url = f"{base_url}/rest/v1/channel_snapshots?channel_id=eq.{internal_id}&order=date.asc&select=date,views"
-            s_req = urllib.request.Request(s_url, headers=headers)
-            with urllib.request.urlopen(s_req, context=_ssl_ctx, timeout=8) as r:
-                snapshots = json.loads(r.read().decode("utf-8"))
+            # 3. Fetch all videos of this channel
+            all_videos = []
+            offset = 0
+            while True:
+                v_all_url = f"{base_url}/rest/v1/videos?channel_id=eq.{internal_id}&deleted_at=is.null&select=id,published_at&limit=1000&offset={offset}"
+                req = urllib.request.Request(v_all_url, headers=headers)
+                with urllib.request.urlopen(req, context=_ssl_ctx, timeout=10) as r:
+                    batch = json.loads(r.read().decode("utf-8"))
+                if not batch or not isinstance(batch, list):
+                    break
+                all_videos.extend(batch)
+                if len(batch) < 1000:
+                    break
+                offset += 1000
 
-            if snapshots:
-                pre_start_snaps = [s for s in snapshots if s.get("date") < start_str]
-                in_range_snaps = [s for s in snapshots if s.get("date") >= start_str and s.get("date") <= end_str]
-                post_end_snaps = [s for s in snapshots if s.get("date") <= end_str]
-
-                opening_views = pre_start_snaps[-1].get("views", 0) if pre_start_snaps else (in_range_snaps[0].get("views", 0) if in_range_snaps else 0)
-                closing_views = post_end_snaps[-1].get("views", 0) if post_end_snaps else (snapshots[-1].get("views", 0) if snapshots else opening_views)
-
-                delta = max(0.0, float(closing_views) - float(opening_views))
-                metrics_by_channel[cid]["views"] = delta
-            else:
+            if not all_videos:
                 metrics_by_channel[cid]["views"] = 0.0
+                continue
+
+            video_ids = [v["id"] for v in all_videos]
+            video_map = {v["id"]: v for v in all_videos}
+
+            # 4. Batch query video_snapshots for these videos (chunks of 100)
+            snaps_by_video: dict[str, list[dict]] = {}
+            chunk_size = 100
+            for i in range(0, len(video_ids), chunk_size):
+                chunk = video_ids[i:i + chunk_size]
+                in_str = urllib.parse.quote(f"({','.join(chunk)})")
+                s_offset = 0
+                while True:
+                    s_url = f"{base_url}/rest/v1/video_snapshots?video_id=in.{in_str}&deleted_at=is.null&order=date.asc&select=video_id,date,views&limit=1000&offset={s_offset}"
+                    req = urllib.request.Request(s_url, headers=headers)
+                    with urllib.request.urlopen(req, context=_ssl_ctx, timeout=10) as r:
+                        s_batch = json.loads(r.read().decode("utf-8"))
+                    if not s_batch or not isinstance(s_batch, list):
+                        break
+                    for s in s_batch:
+                        vid = s.get("video_id")
+                        if vid not in snaps_by_video:
+                            snaps_by_video[vid] = []
+                        snaps_by_video[vid].append(s)
+                    if len(s_batch) < 1000:
+                        break
+                    s_offset += 1000
+
+            # 5. Compute period views delta per video
+            total_views = 0.0
+            for vid, snaps in snaps_by_video.items():
+                if not snaps:
+                    continue
+
+                closing_snaps = [s for s in snaps if s.get("date") <= end_str]
+                if not closing_snaps:
+                    continue
+                closing_views = float(closing_snaps[-1].get("views") or 0)
+
+                pre_start_snaps = [s for s in snaps if s.get("date") < start_str]
+                in_range_snaps = [s for s in snaps if start_str <= s.get("date") <= end_str]
+
+                v_info = video_map.get(vid, {})
+                pub_str = v_info.get("published_at")
+                first_snap_str = snaps[0].get("date")
+
+                if pre_start_snaps:
+                    opening_views = float(pre_start_snaps[-1].get("views") or 0)
+                else:
+                    pub_ms = _parse_iso(pub_str)
+                    first_snap_ms = _parse_iso(first_snap_str)
+                    if pub_ms is not None and first_snap_ms is not None and (first_snap_ms - pub_ms) <= GRACE_MS:
+                        opening_views = 0.0
+                    elif in_range_snaps:
+                        opening_views = float(in_range_snaps[0].get("views") or 0)
+                    else:
+                        opening_views = 0.0
+
+                delta = max(0.0, closing_views - opening_views)
+                total_views += delta
+
+            # 6. Fallback to channel_snapshots if no video snapshots exist
+            if total_views == 0.0 and not snaps_by_video:
+                cs_url = f"{base_url}/rest/v1/channel_snapshots?channel_id=eq.{internal_id}&deleted_at=is.null&order=date.asc&select=date,views"
+                req = urllib.request.Request(cs_url, headers=headers)
+                with urllib.request.urlopen(req, context=_ssl_ctx, timeout=8) as r:
+                    cs_snaps = json.loads(r.read().decode("utf-8"))
+                if cs_snaps:
+                    pre_cs = [s for s in cs_snaps if s.get("date") < start_str]
+                    post_cs = [s for s in cs_snaps if s.get("date") <= end_str]
+                    in_cs = [s for s in cs_snaps if start_str <= s.get("date") <= end_str]
+                    cs_open = pre_cs[-1].get("views", 0) if pre_cs else (in_cs[0].get("views", 0) if in_cs else 0)
+                    cs_close = post_cs[-1].get("views", 0) if post_cs else (cs_snaps[-1].get("views", 0) if cs_snaps else cs_open)
+                    total_views = max(0.0, float(cs_close) - float(cs_open))
+
+            metrics_by_channel[cid]["views"] = total_views
 
         except Exception as ch_err:
             logger.error(f"Error calculating metrics for YouTube channel {cid}: {ch_err}")
