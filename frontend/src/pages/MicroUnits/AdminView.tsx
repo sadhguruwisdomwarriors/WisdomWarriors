@@ -1,21 +1,23 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Calculator, UserCheck } from "lucide-react";
+import { Plus, Calculator, UserCheck, Bell } from "lucide-react";
 import { clsx } from "clsx";
 import { fetchMicroUnits, type MicroUnit } from "../../api/microUnits";
-import { getMe, getToken, type User } from "../../api/auth";
+import { getMe, getToken, getPendingRegistrations, type User } from "../../api/auth";
 import { Link } from "react-router-dom";
 import CreateUnitModal from "./CreateUnitModal";
 import AssignPocModal from "./AssignPocModal";
 import CalculateMetricsModal from "./CalculateMetricsModal";
 import CreateUserModal from "./CreateUserModal";
 import ManageChannelsModal from "./ManageChannelsModal";
+import PendingApprovalsModal from "./PendingApprovalsModal";
 
 export default function AdminView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showCalcModal, setShowCalcModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showPendingModal, setShowPendingModal] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<number | undefined>();
   const [channelModalUnit, setChannelModalUnit] = useState<MicroUnit | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -42,6 +44,12 @@ export default function AdminView() {
     queryFn: fetchMicroUnits,
   });
 
+  const { data: pendingRegistrations = [] } = useQuery({
+    queryKey: ["pendingRegistrations"],
+    queryFn: getPendingRegistrations,
+    refetchInterval: 30000,
+  });
+
   const handleAssignPoc = (unitId?: number) => {
     setSelectedUnitId(unitId);
     setShowAssignModal(true);
@@ -59,6 +67,22 @@ export default function AdminView() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setShowPendingModal(true)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors border text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm ${
+              pendingRegistrations.length > 0
+                ? "bg-amber-950/70 hover:bg-amber-900/90 text-amber-200 border-amber-600/70"
+                : "bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700"
+            }`}
+          >
+            <Bell size={15} className={pendingRegistrations.length > 0 ? "text-amber-400 fill-amber-400/20" : ""} />
+            <span>Pending POCs</span>
+            {pendingRegistrations.length > 0 && (
+              <span className="bg-amber-500 text-black text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                {pendingRegistrations.length}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setShowUserModal(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm"
@@ -82,6 +106,31 @@ export default function AdminView() {
           </button>
         </div>
       </div>
+
+      {/* Admin Notification Banner for Pending Registrations */}
+      {pendingRegistrations.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-950/60 via-amber-900/30 to-gray-900 border border-amber-600/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-lg bg-amber-900/80 text-amber-300 border border-amber-600/60 flex items-center justify-center font-bold text-sm flex-shrink-0">
+              🔔
+            </span>
+            <div>
+              <div className="text-white font-bold text-sm flex items-center gap-2">
+                <span>{pendingRegistrations.length} New POC Registration{pendingRegistrations.length > 1 ? "s" : ""} Pending Review</span>
+              </div>
+              <p className="text-xs text-amber-200/80 mt-0.5">
+                Prospective POCs have registered on the website and are awaiting your approval to access their Micro Units.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPendingModal(true)}
+            className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg transition-colors flex-shrink-0 shadow-sm"
+          >
+            Review & Approve Requests
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-gray-400">Loading micro units...</div>
@@ -207,6 +256,12 @@ export default function AdminView() {
         />
       )}
       {showCalcModal && <CalculateMetricsModal onClose={() => setShowCalcModal(false)} />}
+      {showPendingModal && (
+        <PendingApprovalsModal
+          microUnits={microUnits}
+          onClose={() => setShowPendingModal(false)}
+        />
+      )}
     </div>
   );
 }

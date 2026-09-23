@@ -8,4 +8,5 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     full_name = Column(Text, nullable=False)
     role = Column(Text, default="POC")
+    status = Column(Text, default="ACTIVE")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

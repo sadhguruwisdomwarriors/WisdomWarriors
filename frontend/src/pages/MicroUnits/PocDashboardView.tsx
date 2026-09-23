@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { fetchDashboard } from "../../api/microUnits";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchDashboard, fetchMicroUnits, type MicroUnit } from "../../api/microUnits";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Award, Film } from "lucide-react";
+import { Award, Film, Users, Plus } from "lucide-react";
+import ManageChannelsModal from "./ManageChannelsModal";
 
 const YoutubeIcon = ({ size = 16, className = "" }: { size?: number; className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -36,10 +37,18 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
   const { id } = useParams<{ id: string }>();
   const activeUnitId = unitIdOverride || (id ? parseInt(id, 10) : undefined);
   const [year, setYear] = useState<number>(new Date().getFullYear());
+  const [showManageModal, setShowManageModal] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: dashboard, isLoading, error } = useQuery({
     queryKey: ["microUnitDashboard", activeUnitId, year],
     queryFn: () => fetchDashboard(activeUnitId!, year),
+    enabled: !!activeUnitId,
+  });
+
+  const { data: microUnits = [] } = useQuery({
+    queryKey: ["microUnits"],
+    queryFn: fetchMicroUnits,
     enabled: !!activeUnitId,
   });
 
@@ -62,6 +71,17 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
     if (!isAPoc && isBPoc) return 1;
     return a.creator_name.localeCompare(b.creator_name);
   });
+
+  const activeUnit: MicroUnit = microUnits.find(u => u.id === activeUnitId) || {
+    id: activeUnitId!,
+    unit_number: dashboard.unit.id,
+    name: dashboard.unit.name,
+    poc_user_id: null,
+    poc_name: dashboard.unit.poc,
+    status: "active",
+    channels: [],
+    creators: [],
+  };
 
   const getMonthName = (ym: string) => {
     const m = ym.slice(5, 7);
@@ -111,17 +131,27 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-gray-400 text-sm">Year:</label>
-          <select
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-purple-500"
-            value={year}
-            onChange={(e) => setYear(parseInt(e.target.value, 10))}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setShowManageModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-purple-950 transition-all flex-shrink-0"
           >
-            {years.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+            <Users size={15} />
+            <span>Manage Creators & Channels</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <label className="text-gray-400 text-sm">Year:</label>
+            <select
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-purple-500"
+              value={year}
+              onChange={(e) => setYear(parseInt(e.target.value, 10))}
+            >
+              {years.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -314,17 +344,31 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
               );
             })}
 
-            {creators.length === 0 && (
+            {sortedCreators.length === 0 && (
               <tr>
-                <td colSpan={sortedMonths.length + 1} className="p-8 text-center text-gray-500 italic">
-                  No creators or channels configured in this micro unit yet.
+                <td colSpan={sortedMonths.length + 1} className="p-8 text-center text-gray-400">
+                  <div className="max-w-md mx-auto space-y-3 py-4">
+                    <div className="w-12 h-12 rounded-2xl bg-purple-950/60 border border-purple-800 text-purple-400 flex items-center justify-center mx-auto">
+                      <Users size={22} />
+                    </div>
+                    <p className="text-sm font-bold text-white">No content creators or channels configured yet</p>
+                    <p className="text-xs text-gray-400">Add your team creators, assign YouTube channels and Instagram handles to start calculating reach.</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowManageModal(true)}
+                      className="px-4 py-2 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all inline-flex items-center gap-1.5"
+                    >
+                      <Plus size={14} />
+                      <span>Add Content Creators & Channels</span>
+                    </button>
+                  </div>
                 </td>
               </tr>
             )}
           </tbody>
 
           {/* Unit Total Views Table Footer */}
-          {sortedMonths.length > 0 && creators.length > 0 && (
+          {sortedMonths.length > 0 && sortedCreators.length > 0 && (
             <tfoot>
               <tr className="bg-gray-800/95 border-t-2 border-purple-800/60 font-bold text-sm">
                 <td className="p-4 text-white border-r border-gray-700 uppercase tracking-wider text-xs">
@@ -354,7 +398,7 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
       </div>
 
       {/* Monthly Trends Analytics Charts */}
-      {sortedMonths.length > 0 && creators.length > 0 && (
+      {sortedMonths.length > 0 && sortedCreators.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg">
             <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
@@ -375,7 +419,7 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                     formatter={(value: any) => [formatNumber(Number(value) || 0), "Views"]}
                   />
                   <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                  {creators.map((creator, idx) => (
+                  {sortedCreators.map((creator, idx) => (
                     <Line 
                       key={idx}
                       type="monotone" 
@@ -407,7 +451,7 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                     cursor={{ fill: '#374151', opacity: 0.4 }}
                   />
                   <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                  {creators.map((creator, idx) => (
+                  {sortedCreators.map((creator, idx) => (
                     <Bar 
                       key={idx}
                       dataKey={`${creator.creator_name}_uploads`} 
@@ -421,6 +465,18 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
             </div>
           </div>
         </div>
+      )}
+
+      {showManageModal && (
+        <ManageChannelsModal
+          unit={activeUnit}
+          onClose={() => {
+            setShowManageModal(false);
+            queryClient.invalidateQueries({ queryKey: ["microUnitDashboard", activeUnitId, year] });
+            queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+            queryClient.invalidateQueries({ queryKey: ["myUnit"] });
+          }}
+        />
       )}
     </div>
   );

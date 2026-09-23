@@ -270,3 +270,11 @@ export async function clearCalculations(year: number, month?: number): Promise<v
   });
   return handleResponse<void>(res);
 }
+
+export async function autoCalculateUnitMetrics(unitId: number): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${API_URL}/api/micro-units/${unitId}/auto-calculate`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return handleResponse<{ status: string; message: string }>(res);
+}

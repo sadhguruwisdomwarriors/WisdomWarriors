@@ -8,6 +8,7 @@ import {
   removeChannel, 
   fetchAvailableProfiles, 
   fetchAvailableYoutubeChannels,
+  autoCalculateUnitMetrics,
   type MicroUnit 
 } from "../../api/microUnits";
 
@@ -46,8 +47,24 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
   const [customYtId, setCustomYtId] = useState("");
   const [customYtTitle, setCustomYtTitle] = useState("");
   const [isCustomYt, setIsCustomYt] = useState(false);
+  const [isCalculating, setIsCalculating] = useState(false);
 
   const queryClient = useQueryClient();
+
+  const handleDone = async () => {
+    setIsCalculating(true);
+    try {
+      await autoCalculateUnitMetrics(unit.id);
+    } catch (err) {
+      console.warn("Auto-calc error on done:", err);
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["microUnits"] });
+      queryClient.invalidateQueries({ queryKey: ["microUnitDashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["myUnit"] });
+      setIsCalculating(false);
+      onClose();
+    }
+  };
 
   const { data: availableProfiles = [], isLoading: loadingProfiles } = useQuery({
     queryKey: ["availableProfiles"],
@@ -647,13 +664,31 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
         </div>
 
         {/* Footer */}
-        <div className="mt-4 pt-3 border-t border-gray-800 flex justify-end flex-shrink-0">
+        <div className="mt-4 pt-3 border-t border-gray-800 flex items-center justify-between flex-shrink-0">
+          <div className="text-xs text-gray-400">
+            {isCalculating ? (
+              <span className="text-purple-400 flex items-center gap-1.5 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                Calculating and syncing metrics for YouTube & Instagram...
+              </span>
+            ) : (
+              <span>Click "Done" to save channels and update all performance metrics.</span>
+            )}
+          </div>
           <button
             type="button"
-            onClick={onClose}
-            className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-xl transition-colors font-medium"
+            disabled={isCalculating}
+            onClick={handleDone}
+            className="px-6 py-2 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white text-sm rounded-xl transition-all font-semibold shadow-md shadow-purple-950 flex items-center gap-2 disabled:opacity-50"
           >
-            Done
+            {isCalculating ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Calculating Metrics...</span>
+              </>
+            ) : (
+              <span>Done & Update Metrics</span>
+            )}
           </button>
         </div>
       </div>

@@ -47,9 +47,46 @@ class CalculateRequest(BaseModel):
     year: int
     months: List[MonthCalculation]
 
+async def check_unit_access(unit_id: int, user: Optional[User], db: AsyncSession) -> MicroUnit:
+    result = await db.execute(select(MicroUnit).where(MicroUnit.id == unit_id))
+    unit = result.scalars().first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Micro Unit not found")
+    if user and user.role != "ADMIN" and unit.poc_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to access or modify this Micro Unit")
+    return unit
+
+async def auto_calculate_unit_metrics_helper(unit_id: int, db: AsyncSession):
+    """
+    Automatically calculates monthly metrics for all distinct year_month configurations
+    previously recorded in monthly_channel_metrics (or default Aug 2026 runs 97/111).
+    """
+    existing_metrics_res = await db.execute(
+        select(
+            MonthlyChannelMetric.year_month,
+            MonthlyChannelMetric.snapshot1_run_id,
+            MonthlyChannelMetric.snapshot2_run_id
+        ).distinct()
+    )
+    metric_configs = existing_metrics_res.all()
+    if not metric_configs:
+        metric_configs = [("2026-08", 97, 111)]
+    
+    for ym, s1, s2 in metric_configs:
+        try:
+            parts = ym.split("-")
+            y, m = int(parts[0]), int(parts[1])
+            if s1 and s2:
+                await calculate_monthly_metrics(db, y, m, s1, s2)
+        except Exception as e:
+            print(f"Auto-calc warning for {ym}: {e}")
+
 @router.get("")
 async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
-    result = await db.execute(select(MicroUnit).order_by(MicroUnit.unit_number.asc()))
+    query = select(MicroUnit).order_by(MicroUnit.unit_number.asc())
+    if current_user and current_user.role == "POC":
+        query = query.where(MicroUnit.poc_user_id == current_user.id)
+    result = await db.execute(query)
     units = result.scalars().all()
     response = []
     for unit in units:
@@ -129,7 +166,8 @@ async def delete_micro_unit(id: int, db: AsyncSession = Depends(get_db), current
     return {"status": "deleted"}
 
 @router.post("/{id}/creators")
-async def add_creator(id: int, request: CreatorAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def add_creator(id: int, request: CreatorAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    await check_unit_access(id, current_user, db)
     clean_name = request.name.strip()
     if not clean_name:
         raise HTTPException(status_code=400, detail="Creator name cannot be empty")
@@ -140,7 +178,8 @@ async def add_creator(id: int, request: CreatorAdd, db: AsyncSession = Depends(g
     return {"id": creator.id, "name": creator.name, "micro_unit_id": creator.micro_unit_id}
 
 @router.delete("/{id}/creators/{creator_id}")
-async def delete_creator(id: int, creator_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def delete_creator(id: int, creator_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    await check_unit_access(id, current_user, db)
     result = await db.execute(select(MicroUnitCreator).where(MicroUnitCreator.id == creator_id, MicroUnitCreator.micro_unit_id == id))
     creator = result.scalars().first()
     if not creator:
