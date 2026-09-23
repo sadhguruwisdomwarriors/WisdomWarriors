@@ -13,6 +13,7 @@ from backend.models.monthly_channel_metric import MonthlyChannelMetric
 from backend.models.scrape_run import ScrapeRun
 from backend.models.profile import Profile
 from backend.models.scrape_profile import ScrapeProfile
+from backend.models.post_snapshot import PostSnapshot
 from backend.services.auth_service import get_current_user, require_admin, get_optional_user
 from backend.services.monthly_calculation_service import calculate_monthly_metrics
 from backend.services.youtube_read_service import fetch_available_youtube_channels, calculate_youtube_monthly_metrics
@@ -208,10 +209,26 @@ async def list_available_profiles(db: AsyncSession = Depends(get_db)):
         u_key = sp.username.lower()
         if u_key not in profiles_dict:
             profiles_dict[u_key] = {
-                "id": sp.instagram_id or sp.username,
+                "id": str(sp.id),
                 "username": sp.username,
                 "creator_name": sp.username
             }
+            
+    # Include any distinct owner_usernames from post_snapshots
+    ps_result = await db.execute(
+        select(PostSnapshot.owner_username).where(PostSnapshot.owner_username.isnot(None)).distinct()
+    )
+    for row in ps_result.all():
+        u_name = row[0]
+        if u_name:
+            u_clean = u_name.strip()
+            u_key = u_clean.lower()
+            if u_key and u_key not in profiles_dict:
+                profiles_dict[u_key] = {
+                    "id": u_clean,
+                    "username": u_clean,
+                    "creator_name": u_clean
+                }
             
     return sorted(list(profiles_dict.values()), key=lambda x: x["username"].lower())
 
@@ -247,7 +264,8 @@ async def get_configured_runs(year: int = Query(...), db: AsyncSession = Depends
     return configured
 
 @router.post("/{id}/channels")
-async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    await check_unit_access(id, current_user, db)
     platform = (request.platform or "INSTAGRAM").upper()
     clean_username = request.username.strip()
     if platform == "INSTAGRAM":
@@ -313,7 +331,8 @@ async def add_channel(id: int, request: ChannelAdd, db: AsyncSession = Depends(g
     return channel
 
 @router.delete("/{id}/channels/{channel_id}")
-async def remove_channel(id: int, channel_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def remove_channel(id: int, channel_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    await check_unit_access(id, current_user, db)
     result = await db.execute(select(MicroUnitChannel).where(MicroUnitChannel.id == channel_id, MicroUnitChannel.micro_unit_id == id))
     channel = result.scalars().first()
     if not channel:
@@ -322,6 +341,12 @@ async def remove_channel(id: int, channel_id: int, db: AsyncSession = Depends(ge
     await db.delete(channel)
     await db.commit()
     return {"status": "deleted"}
+
+@router.post("/{id}/auto-calculate")
+async def auto_calculate(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    await check_unit_access(id, current_user, db)
+    await auto_calculate_unit_metrics_helper(id, db)
+    return {"status": "success", "message": "Calculated metrics successfully"}
 
 @router.delete("/calculations")
 async def clear_calculations(year: int = Query(...), month: Optional[int] = Query(None), db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
