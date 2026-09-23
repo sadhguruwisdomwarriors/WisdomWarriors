@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, UserPlus, Mail, UserCheck } from "lucide-react";
 import { createUser, type CreateUserBody } from "../../api/auth";
 
 interface CreateUserModalProps {
@@ -10,6 +9,7 @@ interface CreateUserModalProps {
 export default function CreateUserModal({ onClose }: CreateUserModalProps) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState("POC");
   const queryClient = useQueryClient();
 
@@ -17,8 +17,7 @@ export default function CreateUserModal({ onClose }: CreateUserModalProps) {
     mutationFn: (body: CreateUserBody) => createUser(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      queryClient.invalidateQueries({ queryKey: ["microUnits"] });
-      alert(`User "${fullName}" created successfully! You can now assign them as POC to a Micro Unit.`);
+      alert(`User ${fullName} created successfully! You can now assign them as POC.`);
       onClose();
     },
     onError: (err: any) => {
@@ -28,103 +27,75 @@ export default function CreateUserModal({ onClose }: CreateUserModalProps) {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim()) return;
+    if (!fullName || !email || !password) return;
     createMutation.mutate({
-      full_name: fullName.trim(),
-      email: email.trim().toLowerCase(),
+      full_name: fullName,
+      email,
+      password,
       role,
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden space-y-5">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-gray-800 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-950/60 border border-purple-700/50 flex items-center justify-center text-purple-400">
-              <UserPlus size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-white">Create New User / POC</h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Add an admin or POC user directly to the database
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold text-white mb-4">Create New User (POC / Admin)</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
-              Full Name
-            </label>
-            <div className="relative flex items-center">
-              <UserCheck size={14} className="absolute left-3 text-gray-500 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="e.g. Arun Kumar"
-                className="w-full bg-gray-950 border border-gray-800 rounded-xl pl-9 pr-3.5 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 transition-all"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                autoFocus
-                required
-              />
-            </div>
+            <label className="block text-gray-400 text-sm mb-1">Full Name</label>
+            <input
+              type="text"
+              placeholder="e.g. Arun Kumar"
+              className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-sm"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+            />
           </div>
-
           <div>
-            <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
-              Email Address
-            </label>
-            <div className="relative flex items-center">
-              <Mail size={14} className="absolute left-3 text-gray-500 pointer-events-none" />
-              <input
-                type="email"
-                placeholder="example@gmail.com"
-                className="w-full bg-gray-950 border border-gray-800 rounded-xl pl-9 pr-3.5 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-purple-500 transition-all"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            <label className="block text-gray-400 text-sm mb-1">Email Address</label>
+            <input
+              type="email"
+              placeholder="example@gmail.com"
+              className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-sm"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </div>
-
           <div>
-            <label className="block text-gray-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
-              Role
-            </label>
+            <label className="block text-gray-400 text-sm mb-1">Password</label>
+            <input
+              type="password"
+              placeholder="Minimum 6 characters"
+              className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-sm"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Role</label>
             <select
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500 transition-all"
+              className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-sm"
               value={role}
               onChange={(e) => setRole(e.target.value)}
             >
-              <option value="POC">Point of Contact (POC)</option>
-              <option value="ADMIN">Administrator (Full Access)</option>
+              <option value="POC">Point of Coordinator (POC)</option>
+              <option value="ADMIN">Admin</option>
             </select>
           </div>
-
-          <div className="p-3 bg-purple-950/30 border border-purple-850/50 rounded-xl text-xs text-gray-400 leading-relaxed">
-            💡 <span className="text-purple-300 font-semibold">Note:</span> Prospective POCs can also directly self-register on the portal login page with their own chosen password.
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-gray-800">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-800">
             <button
               type="button"
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium rounded-xl transition-colors"
+              className="px-4 py-2 bg-gray-700 text-white text-sm rounded hover:bg-gray-600 transition-colors"
               onClick={onClose}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-purple-950 transition-all disabled:opacity-50"
+              className="px-4 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors disabled:opacity-50"
               disabled={createMutation.isPending}
             >
               {createMutation.isPending ? "Creating..." : "Create User"}

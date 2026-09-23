@@ -21,7 +21,7 @@ class RegisterRequest(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: Optional[str] = None
+    password: str
     full_name: str
     role: str = "POC"
     status: str = "ACTIVE"
@@ -188,9 +188,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db), curr
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    import secrets
-    raw_password = user.password.strip() if user.password and user.password.strip() else secrets.token_urlsafe(16)
-    hashed_password = hash_password(raw_password)
+    hashed_password = hash_password(user.password)
     new_user = User(
         email=clean_email,
         password_hash=hashed_password,

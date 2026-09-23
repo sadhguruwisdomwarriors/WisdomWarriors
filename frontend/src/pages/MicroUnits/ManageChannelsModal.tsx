@@ -39,14 +39,9 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
   const [platform, setPlatform] = useState<"INSTAGRAM" | "YOUTUBE">("INSTAGRAM");
   const [selectedProfile, setSelectedProfile] = useState("");
   const [igSearchTerm, setIgSearchTerm] = useState("");
-  const [customIgUsername, setCustomIgUsername] = useState("");
-  const [isCustomIg, setIsCustomIg] = useState(false);
 
   const [selectedYtChannel, setSelectedYtChannel] = useState("");
   const [ytSearchTerm, setYtSearchTerm] = useState("");
-  const [customYtId, setCustomYtId] = useState("");
-  const [customYtTitle, setCustomYtTitle] = useState("");
-  const [isCustomYt, setIsCustomYt] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
 
   const queryClient = useQueryClient();
@@ -113,11 +108,8 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
       queryClient.invalidateQueries({ queryKey: ["microUnits"] });
       setSelectedProfile("");
       setIgSearchTerm("");
-      setCustomIgUsername("");
       setSelectedYtChannel("");
       setYtSearchTerm("");
-      setCustomYtId("");
-      setCustomYtTitle("");
     },
     onError: (err: any) => {
       alert(`Error adding channel: ${err.message}`);
@@ -143,54 +135,31 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
 
   const handleAttachChannel = (creatorId?: number, creatorName?: string) => {
     if (platform === "INSTAGRAM") {
-      if (isCustomIg) {
-        if (!customIgUsername.trim()) return;
-        const cleanUser = customIgUsername.trim().replace(/^@/, '');
+      if (!selectedProfile) return;
+      const prof = availableProfiles.find(p => p.username.toLowerCase() === selectedProfile.toLowerCase());
+      if (prof) {
         addChannelMutation.mutate({
           creator_id: creatorId,
           platform: "INSTAGRAM",
-          username: cleanUser,
-          creator_name: creatorName || cleanUser,
-          channel_title: `@${cleanUser}`,
+          username: prof.username,
+          instagram_id: prof.id,
+          creator_name: creatorName || prof.creator_name || `@${prof.username}`,
+          channel_title: `@${prof.username}`,
         });
-      } else {
-        if (!selectedProfile) return;
-        const prof = availableProfiles.find(p => p.username === selectedProfile);
-        if (prof) {
-          addChannelMutation.mutate({
-            creator_id: creatorId,
-            platform: "INSTAGRAM",
-            username: prof.username,
-            instagram_id: prof.id,
-            creator_name: creatorName || prof.creator_name || `@${prof.username}`,
-            channel_title: `@${prof.username}`,
-          });
-        }
       }
     } else {
       // YouTube
-      if (isCustomYt) {
-        if (!customYtId.trim()) return;
+      if (!selectedYtChannel) return;
+      const yt = availableYtChannels.find(c => (c.youtube_channel_id && c.youtube_channel_id === selectedYtChannel) || (c.id && c.id === selectedYtChannel));
+      if (yt) {
         addChannelMutation.mutate({
           creator_id: creatorId,
           platform: "YOUTUBE",
-          username: customYtId.trim(),
-          creator_name: creatorName || customYtTitle.trim() || customYtId.trim(),
-          channel_title: customYtTitle.trim() || customYtId.trim(),
+          username: yt.youtube_channel_id || yt.id,
+          instagram_id: yt.youtube_channel_id || yt.id,
+          creator_name: creatorName || yt.title || "YouTube Creator",
+          channel_title: yt.title,
         });
-      } else {
-        if (!selectedYtChannel) return;
-        const yt = availableYtChannels.find(c => c.youtube_channel_id === selectedYtChannel || c.id === selectedYtChannel);
-        if (yt) {
-          addChannelMutation.mutate({
-            creator_id: creatorId,
-            platform: "YOUTUBE",
-            username: yt.youtube_channel_id || yt.id,
-            instagram_id: yt.youtube_channel_id || yt.id,
-            creator_name: creatorName || yt.title || "YouTube Creator",
-            channel_title: yt.title,
-          });
-        }
       }
     }
   };
@@ -511,62 +480,45 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between text-[11px] text-gray-400">
                                   <span>Select Instagram Account</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setIsCustomIg(!isCustomIg)}
-                                    className="text-purple-400 hover:text-purple-300"
-                                  >
-                                    {isCustomIg ? "← Pick from Scraped Profiles" : "+ Enter Custom Handle"}
-                                  </button>
                                 </div>
-                                {!isCustomIg ? (
-                                  <div className="space-y-1.5">
-                                    <div className="relative flex items-center">
-                                      <Search size={13} className="absolute left-2.5 text-gray-500 pointer-events-none" />
-                                      <input
-                                        type="text"
-                                        placeholder="Search Instagram profiles by username or name..."
-                                        className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-8 pr-7 py-1.5 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
-                                        value={igSearchTerm}
-                                        onChange={(e) => setIgSearchTerm(e.target.value)}
-                                      />
-                                      {igSearchTerm && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setIgSearchTerm("")}
-                                          className="absolute right-2 text-gray-500 hover:text-gray-300 p-0.5"
-                                        >
-                                          <X size={12} />
-                                        </button>
-                                      )}
-                                    </div>
-                                    <select
-                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-purple-500"
-                                      value={selectedProfile}
-                                      onChange={(e) => setSelectedProfile(e.target.value)}
-                                      disabled={loadingProfiles}
-                                    >
-                                      <option value="">-- Choose Instagram profile ({filteredIgProfiles.length} available) --</option>
-                                      {filteredIgProfiles.map((p) => (
-                                        <option key={p.id} value={p.username}>
-                                          @{p.username} {p.creator_name ? `(${p.creator_name})` : ""}
-                                        </option>
-                                      ))}
-                                    </select>
+                                <div className="space-y-1.5">
+                                  <div className="relative flex items-center">
+                                    <Search size={13} className="absolute left-2.5 text-gray-500 pointer-events-none" />
+                                    <input
+                                      type="text"
+                                      placeholder="Search Instagram profiles by username or name..."
+                                      className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-8 pr-7 py-1.5 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                                      value={igSearchTerm}
+                                      onChange={(e) => setIgSearchTerm(e.target.value)}
+                                    />
+                                    {igSearchTerm && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setIgSearchTerm("")}
+                                        className="absolute right-2 text-gray-500 hover:text-gray-300 p-0.5"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    )}
                                   </div>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    placeholder="e.g. sanjeev_yogii (without @)"
-                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500"
-                                    value={customIgUsername}
-                                    onChange={(e) => setCustomIgUsername(e.target.value)}
-                                  />
-                                )}
+                                  <select
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-purple-500"
+                                    value={selectedProfile}
+                                    onChange={(e) => setSelectedProfile(e.target.value)}
+                                    disabled={loadingProfiles}
+                                  >
+                                    <option value="">-- Choose Instagram profile ({filteredIgProfiles.length} available) --</option>
+                                    {filteredIgProfiles.map((p) => (
+                                      <option key={p.id} value={p.username}>
+                                        @{p.username} {p.creator_name ? `(${p.creator_name})` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => handleAttachChannel(creator.id, creator.name)}
-                                  disabled={addChannelMutation.isPending || (!isCustomIg ? !selectedProfile : !customIgUsername.trim())}
+                                  disabled={addChannelMutation.isPending || !selectedProfile}
                                   className="w-full py-1.5 bg-purple-700 hover:bg-purple-600 text-white font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                 >
                                   <Plus size={14} />
@@ -580,71 +532,45 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between text-[11px] text-gray-400">
                                   <span>Select YouTube Channel from Database</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setIsCustomYt(!isCustomYt)}
-                                    className="text-red-400 hover:text-red-300"
-                                  >
-                                    {isCustomYt ? "← Pick from YouTube DB" : "+ Enter Custom Channel ID"}
-                                  </button>
                                 </div>
-                                {!isCustomYt ? (
-                                  <div className="space-y-1.5">
-                                    <div className="relative flex items-center">
-                                      <Search size={13} className="absolute left-2.5 text-gray-500 pointer-events-none" />
-                                      <input
-                                        type="text"
-                                        placeholder="Search YouTube channels by title or handle..."
-                                        className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-8 pr-7 py-1.5 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-red-500 transition-colors"
-                                        value={ytSearchTerm}
-                                        onChange={(e) => setYtSearchTerm(e.target.value)}
-                                      />
-                                      {ytSearchTerm && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setYtSearchTerm("")}
-                                          className="absolute right-2 text-gray-500 hover:text-gray-300 p-0.5"
-                                        >
-                                          <X size={12} />
-                                        </button>
-                                      )}
-                                    </div>
-                                    <select
-                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-red-500"
-                                      value={selectedYtChannel}
-                                      onChange={(e) => setSelectedYtChannel(e.target.value)}
-                                      disabled={loadingYtChannels}
-                                    >
-                                      <option value="">-- Choose YouTube channel ({filteredYtChannels.length} available) --</option>
-                                      {filteredYtChannels.map((c) => (
-                                        <option key={c.id} value={c.youtube_channel_id || c.id}>
-                                          ▶️ {c.title} {c.custom_url ? `(${c.custom_url})` : ""} {c.current_subscribers ? `• ${c.current_subscribers.toLocaleString()} subs` : ""}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-1.5">
+                                <div className="space-y-1.5">
+                                  <div className="relative flex items-center">
+                                    <Search size={13} className="absolute left-2.5 text-gray-500 pointer-events-none" />
                                     <input
                                       type="text"
-                                      placeholder="YouTube Channel ID / Handle (e.g. UC_xxxx)"
-                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-red-500"
-                                      value={customYtId}
-                                      onChange={(e) => setCustomYtId(e.target.value)}
+                                      placeholder="Search YouTube channels by title or handle..."
+                                      className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-8 pr-7 py-1.5 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-red-500 transition-colors"
+                                      value={ytSearchTerm}
+                                      onChange={(e) => setYtSearchTerm(e.target.value)}
                                     />
-                                    <input
-                                      type="text"
-                                      placeholder="Display Title (Optional)"
-                                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-red-500"
-                                      value={customYtTitle}
-                                      onChange={(e) => setCustomYtTitle(e.target.value)}
-                                    />
+                                    {ytSearchTerm && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setYtSearchTerm("")}
+                                        className="absolute right-2 text-gray-500 hover:text-gray-300 p-0.5"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    )}
                                   </div>
-                                )}
+                                  <select
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-red-500"
+                                    value={selectedYtChannel}
+                                    onChange={(e) => setSelectedYtChannel(e.target.value)}
+                                    disabled={loadingYtChannels}
+                                  >
+                                    <option value="">-- Choose YouTube channel ({filteredYtChannels.length} available) --</option>
+                                    {filteredYtChannels.map((c) => (
+                                      <option key={c.id} value={c.youtube_channel_id || c.id}>
+                                        ▶️ {c.title} {c.custom_url ? `(${c.custom_url})` : ""} {c.current_subscribers ? `• ${c.current_subscribers.toLocaleString()} subs` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => handleAttachChannel(creator.id, creator.name)}
-                                  disabled={addChannelMutation.isPending || (!isCustomYt ? !selectedYtChannel : !customYtId.trim())}
+                                  disabled={addChannelMutation.isPending || !selectedYtChannel}
                                   className="w-full py-1.5 bg-red-700 hover:bg-red-600 text-white font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                 >
                                   <Plus size={14} />
