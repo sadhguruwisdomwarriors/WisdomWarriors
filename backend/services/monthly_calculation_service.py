@@ -1,18 +1,10 @@
-import calendar
-from datetime import datetime, timedelta
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.post_snapshot import PostSnapshot
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
-from backend.repositories.analytics_repo import (
-    get_wisdom_warriors_monthly_views_filtered,
-    WISDOM_WARRIOR_ALLOWED_HASHTAGS,
-    WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS,
-    WISDOM_WARRIOR_ALLOWED_MENTIONS,
-    WISDOM_WARRIOR_ALLOWED_TAGGED_USERS,
-)
 
 
 def _get_prior_6_months(year: int, month: int) -> list[str]:
@@ -25,6 +17,87 @@ def _get_prior_6_months(year: int, month: int) -> list[str]:
             cur_y -= 1
         prior_months.append(f"{cur_y}-{cur_m:02d}")
     return prior_months
+
+
+def _extract_coauthors(raw_coauthors) -> list[str]:
+    if not raw_coauthors:
+        return []
+    if isinstance(raw_coauthors, str):
+        try:
+            raw_coauthors = json.loads(raw_coauthors)
+        except Exception:
+            return []
+    result = []
+    if isinstance(raw_coauthors, list):
+        for item in raw_coauthors:
+            if isinstance(item, str):
+                c = item.strip().lstrip("@").lower()
+                if c and c not in result:
+                    result.append(c)
+            elif isinstance(item, dict):
+                for k in ("username", "userName", "ownerUsername", "handle"):
+                    val = item.get(k)
+                    if isinstance(val, str) and val.strip():
+                        c = val.strip().lstrip("@").lower()
+                        if c and c not in result:
+                            result.append(c)
+                        break
+    return result
+
+
+async def _get_views_and_posts_for_snapshot_month(
+    db: AsyncSession,
+    run_id: int,
+    month_str: str,
+    target_usernames: set[str],
+) -> tuple[dict[str, float], dict[str, int], dict[str, int], dict[str, int]]:
+    stmt = (
+        select(PostSnapshot)
+        .where(
+            (PostSnapshot.run_id == run_id)
+            & (PostSnapshot.timestamp.is_not(None))
+            & (func.to_char(PostSnapshot.timestamp, "YYYY-MM") == month_str)
+        )
+    )
+    res = await db.execute(stmt)
+    posts = res.scalars().all()
+
+    views_by_user = {u: 0.0 for u in target_usernames}
+    post_counts = {u: 0 for u in target_usernames}
+    reels_counts = {u: 0 for u in target_usernames}
+    static_counts = {u: 0 for u in target_usernames}
+
+    for p in posts:
+        owner = (p.owner_username or "").strip().lstrip("@").lower()
+        coauthors = _extract_coauthors(p.coauthor_producers)
+        participants = []
+        for part in [owner, *coauthors]:
+            if part and part not in participants:
+                participants.append(part)
+
+        if not participants:
+            continue
+
+        split_factor = max(1, len(participants))
+        shared_views = float(p.video_play_count or 0) / split_factor
+
+        is_reel = (
+            (p.type in ("Video", "ReelVideo"))
+            or (p.product_type == "clips")
+            or bool(p.video_play_count and p.video_play_count > 0)
+            or bool(p.video_view_count and p.video_view_count > 0)
+        )
+
+        for part in participants:
+            if part in target_usernames:
+                views_by_user[part] += shared_views
+                post_counts[part] += 1
+                if is_reel:
+                    reels_counts[part] += 1
+                else:
+                    static_counts[part] += 1
+
+    return views_by_user, post_counts, reels_counts, static_counts
 
 
 async def calculate_monthly_metrics(
@@ -42,106 +115,47 @@ async def calculate_monthly_metrics(
     target_year_month = f"{year}-{month:02d}"
     prior_months = _get_prior_6_months(year, month)
 
-    # Dictionary to accumulate total views per normalized username
-    # username_key -> total_delta
-    channel_totals: dict[str, float] = {
-        c.username.strip().lstrip("@").lower(): 0.0 for c in channels
+    target_usernames = {
+        c.username.strip().lstrip("@").lower()
+        for c in channels
+        if (getattr(c, "platform", "INSTAGRAM") or "INSTAGRAM").upper() == "INSTAGRAM"
     }
 
-    # 1. Calculate prior 6 months decay delta (S2 - S1)
+    channel_totals: dict[str, float] = {u: 0.0 for u in target_usernames}
+
+    # 1. Calculate prior 6 months decay/growth delta (S2 - S1)
     for prior_m in prior_months:
-        s1_data = await get_wisdom_warriors_monthly_views_filtered(
+        s1_views, _, _, _ = await _get_views_and_posts_for_snapshot_month(
             db=db,
-            month=prior_m,
-            apply_filters=True,
-            hashtags=WISDOM_WARRIOR_ALLOWED_HASHTAGS,
-            mentions=WISDOM_WARRIOR_ALLOWED_MENTIONS,
-            tagged_users=WISDOM_WARRIOR_ALLOWED_TAGGED_USERS,
-            caption_keywords=WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS,
-            category=None,
-            snapshot_run_id=snapshot1_run_id,
+            run_id=snapshot1_run_id,
+            month_str=prior_m,
+            target_usernames=target_usernames,
         )
-        s1_views_by_user = {
-            item["username"].strip().lstrip("@").lower(): float(item.get("total_views") or 0)
-            for item in s1_data
-        }
-
-        s2_data = await get_wisdom_warriors_monthly_views_filtered(
+        s2_views, _, _, _ = await _get_views_and_posts_for_snapshot_month(
             db=db,
-            month=prior_m,
-            apply_filters=True,
-            hashtags=WISDOM_WARRIOR_ALLOWED_HASHTAGS,
-            mentions=WISDOM_WARRIOR_ALLOWED_MENTIONS,
-            tagged_users=WISDOM_WARRIOR_ALLOWED_TAGGED_USERS,
-            caption_keywords=WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS,
-            category=None,
-            snapshot_run_id=snapshot2_run_id,
+            run_id=snapshot2_run_id,
+            month_str=prior_m,
+            target_usernames=target_usernames,
         )
-        s2_views_by_user = {
-            item["username"].strip().lstrip("@").lower(): float(item.get("total_views") or 0)
-            for item in s2_data
-        }
 
-        for uname in channel_totals:
-            s1_v = s1_views_by_user.get(uname, 0.0)
-            s2_v = s2_views_by_user.get(uname, 0.0)
-            month_delta = max(0.0, s2_v - s1_v)
+        for uname in target_usernames:
+            month_delta = max(0.0, s2_views[uname] - s1_views[uname])
             channel_totals[uname] += month_delta
 
-    # 2. Add target month views directly from S2 (ignoring S1 for target month posts)
-    target_s2_data = await get_wisdom_warriors_monthly_views_filtered(
-        db=db,
-        month=target_year_month,
-        apply_filters=True,
-        hashtags=WISDOM_WARRIOR_ALLOWED_HASHTAGS,
-        mentions=WISDOM_WARRIOR_ALLOWED_MENTIONS,
-        tagged_users=WISDOM_WARRIOR_ALLOWED_TAGGED_USERS,
-        caption_keywords=WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS,
-        category=None,
-        snapshot_run_id=snapshot2_run_id,
-    )
-    target_views_by_user = {
-        item["username"].strip().lstrip("@").lower(): float(item.get("total_views") or 0)
-        for item in target_s2_data
-    }
-
-    for uname in channel_totals:
-        channel_totals[uname] += target_views_by_user.get(uname, 0.0)
-
-    # 3. Determine reels count and static posts count in target month from S2
-    s2_target_posts = await db.execute(
-        select(PostSnapshot).where(
-            (PostSnapshot.run_id == snapshot2_run_id)
-            & (PostSnapshot.timestamp.is_not(None))
-            & (func.to_char(PostSnapshot.timestamp, "YYYY-MM") == target_year_month)
+    # 2. Add target month views and post counts directly from S2
+    target_s2_views, post_counts_by_user, reels_counts_by_user, static_counts_by_user = (
+        await _get_views_and_posts_for_snapshot_month(
+            db=db,
+            run_id=snapshot2_run_id,
+            month_str=target_year_month,
+            target_usernames=target_usernames,
         )
     )
-    all_s2_posts = s2_target_posts.scalars().all()
-    post_counts_by_user: dict[str, int] = {uname: 0 for uname in channel_totals}
-    reels_counts_by_user: dict[str, int] = {uname: 0 for uname in channel_totals}
-    static_counts_by_user: dict[str, int] = {uname: 0 for uname in channel_totals}
 
-    for p in all_s2_posts:
-        owner = (p.owner_username or "").strip().lstrip("@").lower()
-        inp = (p.input_url or "").lower()
+    for uname in target_usernames:
+        channel_totals[uname] += target_s2_views[uname]
 
-        # Check if reel (video) or static post (image/carousel)
-        is_reel = (
-            (p.type in ("Video", "ReelVideo"))
-            or (p.product_type == "clips")
-            or bool(p.video_play_count and p.video_play_count > 0)
-            or bool(p.video_view_count and p.video_view_count > 0)
-        )
-
-        for uname in channel_totals:
-            if uname == owner or uname in inp:
-                post_counts_by_user[uname] += 1
-                if is_reel:
-                    reels_counts_by_user[uname] += 1
-                else:
-                    static_counts_by_user[uname] += 1
-
-    # 4. Upsert into monthly_channel_metrics
+    # 3. Upsert into monthly_channel_metrics
     prev_month_num = month - 1
     prev_year_num = year
     if prev_month_num <= 0:
@@ -152,6 +166,10 @@ async def calculate_monthly_metrics(
     channels_processed = 0
 
     for channel in channels:
+        platform = (getattr(channel, "platform", "INSTAGRAM") or "INSTAGRAM").upper()
+        if platform != "INSTAGRAM":
+            continue
+
         clean_name = channel.username.strip().lstrip("@").lower()
         total_delta = channel_totals.get(clean_name, 0.0)
         p_count = post_counts_by_user.get(clean_name, 0)
