@@ -171,12 +171,8 @@ export default function AdminView() {
                             </svg>
                           </div>
                         ) : (
-                          <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                              <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                              <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                            </svg>
+                          <div className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                            <img src="/wisdom_warriors_logo.jpg" alt="Wisdom Warriors" className="w-full h-full object-cover rounded-full" />
                           </div>
                         )}
                         <span className="truncate" title={channel.channel_title || channel.username}>

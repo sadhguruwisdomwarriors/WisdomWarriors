@@ -19,11 +19,12 @@ const YoutubeIcon = ({ size = 16, className = "" }: { size?: number; className?:
 );
 
 const InstagramIcon = ({ size = 16, className = "" }: { size?: number; className?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-  </svg>
+  <img 
+    src="/wisdom_warriors_logo.jpg" 
+    alt="Wisdom Warriors" 
+    style={{ width: size, height: size }} 
+    className={`inline-block object-cover rounded-full flex-shrink-0 ${className}`} 
+  />
 );
 
 interface ManageChannelsModalProps {
@@ -419,8 +420,8 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                         <YoutubeIcon size={11} className="text-white" />
                                       </div>
                                     ) : (
-                                      <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                                        <InstagramIcon size={11} className="text-white" />
+                                      <div className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                                        <InstagramIcon size={20} className="w-full h-full object-cover" />
                                       </div>
                                     )}
                                     <span className="text-gray-200 font-medium truncate" title={isYT ? (ch.channel_title || ch.username) : `@${ch.username}`}>

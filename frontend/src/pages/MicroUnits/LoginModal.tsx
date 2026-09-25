@@ -32,18 +32,7 @@ export default function LoginModal({ onClose, onSuccess }: LoginModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-md">
         <div className="flex items-center gap-2 mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="url(#ig-grad-modal)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <defs>
-              <linearGradient id="ig-grad-modal" x1="2" y1="2" x2="22" y2="22">
-                <stop offset="0%" stopColor="#f59e0b" />
-                <stop offset="50%" stopColor="#ec4899" />
-                <stop offset="100%" stopColor="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-            <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-            <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-          </svg>
+          <img src="/wisdom_warriors_logo.jpg" alt="Wisdom Warriors" className="w-6 h-6 rounded-full object-cover border border-gray-700" />
           <h2 className="text-xl font-bold text-white">Log In to Wisdom Warriors</h2>
         </div>
         <p className="text-gray-400 text-xs mb-4">Log in as Admin to manage units, or as POC to view your unit dashboard.</p>

@@ -109,14 +109,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       <div className="relative w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl backdrop-blur">
         {/* Brand header */}
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-0.5 shadow-lg shadow-purple-500/20 mb-4 flex items-center justify-center">
-            <div className="w-full h-full bg-gray-950 rounded-[14px] flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-              </svg>
-            </div>
+          <div className="w-16 h-16 rounded-2xl overflow-hidden p-0.5 shadow-lg shadow-purple-500/20 mb-4 flex items-center justify-center bg-gray-950 border border-gray-700">
+            <img src="/wisdom_warriors_logo.jpg" alt="Wisdom Warriors" className="w-full h-full object-cover rounded-xl" />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Wisdom Warriors</h1>
           <p className="text-gray-400 text-xs mt-1">
