@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Calculator, UserCheck, Bell } from "lucide-react";
+import { Plus, Calculator, UserCheck, Bell, ExternalLink } from "lucide-react";
 import { clsx } from "clsx";
+import { getInstagramUrl, getYoutubeUrl } from "../../utils/urlHelpers";
 import { fetchMicroUnits, type MicroUnit } from "../../api/microUnits";
 import { getMe, getToken, getPendingRegistrations, type User } from "../../api/auth";
 import { Link } from "react-router-dom";
@@ -175,9 +176,29 @@ export default function AdminView() {
                             <img src="/wisdom_warriors_logo.jpg" alt="Wisdom Warriors" className="w-full h-full object-cover rounded-full" />
                           </div>
                         )}
-                        <span className="truncate" title={channel.channel_title || channel.username}>
-                          {isYT ? (channel.channel_title || channel.username) : `@${channel.username}`}
-                        </span>
+                        {isYT ? (
+                          <a
+                            href={getYoutubeUrl(channel.username)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="truncate hover:text-red-400 hover:underline flex items-center gap-1 group transition-colors"
+                            title={`Open YouTube: ${channel.channel_title || channel.username}`}
+                          >
+                            <span className="truncate">{channel.channel_title || channel.username}</span>
+                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-red-400" />
+                          </a>
+                        ) : (
+                          <a
+                            href={getInstagramUrl(channel.username)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="truncate hover:text-pink-400 hover:underline flex items-center gap-1 group transition-colors"
+                            title={`Open Instagram: @${channel.username}`}
+                          >
+                            <span className="truncate">@{channel.username}</span>
+                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-pink-400" />
+                          </a>
+                        )}
                         {channel.creator_name && channel.creator_name !== channel.username && (
                           <span className="text-[11px] text-gray-500 truncate">({channel.creator_name})</span>
                         )}

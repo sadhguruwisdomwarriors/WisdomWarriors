@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, X, UserPlus, Users, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { Plus, Trash2, X, UserPlus, Users, ChevronDown, ChevronUp, Search, ExternalLink } from "lucide-react";
+import { getInstagramUrl, getYoutubeUrl } from "../../utils/urlHelpers";
 import { 
   addCreator,
   deleteCreator,
@@ -424,9 +425,29 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                         <InstagramIcon size={20} className="w-full h-full object-cover" />
                                       </div>
                                     )}
-                                    <span className="text-gray-200 font-medium truncate" title={isYT ? (ch.channel_title || ch.username) : `@${ch.username}`}>
-                                      {isYT ? (ch.channel_title || ch.username) : `@${ch.username}`}
-                                    </span>
+                                    {isYT ? (
+                                      <a
+                                        href={getYoutubeUrl(ch.username)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-gray-200 hover:text-red-400 font-medium truncate flex items-center gap-1 group transition-colors"
+                                        title={`Open YouTube: ${ch.channel_title || ch.username}`}
+                                      >
+                                        <span className="truncate group-hover:underline">{ch.channel_title || ch.username}</span>
+                                        <ExternalLink size={10} className="text-gray-500 group-hover:text-red-400 flex-shrink-0 opacity-70 group-hover:opacity-100 transition-all" />
+                                      </a>
+                                    ) : (
+                                      <a
+                                        href={getInstagramUrl(ch.username)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-gray-200 hover:text-pink-400 font-medium truncate flex items-center gap-1 group transition-colors"
+                                        title={`Open Instagram: @${ch.username}`}
+                                      >
+                                        <span className="truncate group-hover:underline">@{ch.username}</span>
+                                        <ExternalLink size={10} className="text-gray-500 group-hover:text-pink-400 flex-shrink-0 opacity-70 group-hover:opacity-100 transition-all" />
+                                      </a>
+                                    )}
                                   </div>
                                   <button
                                     onClick={() => removeChannelMutation.mutate(ch.id)}
@@ -515,6 +536,21 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                       </option>
                                     ))}
                                   </select>
+                                  {selectedProfile && (
+                                    <div className="flex items-center justify-between px-2.5 py-1.5 bg-gray-950 border border-purple-800/50 rounded-lg text-xs">
+                                      <span className="text-gray-400">Verify Profile:</span>
+                                      <a
+                                        href={getInstagramUrl(selectedProfile)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-pink-400 hover:text-pink-300 font-semibold flex items-center gap-1.5 group hover:underline"
+                                        title={`Open Instagram Profile: @${selectedProfile}`}
+                                      >
+                                        <span>@{selectedProfile}</span>
+                                        <ExternalLink size={11} className="text-pink-400" />
+                                      </a>
+                                    </div>
+                                  )}
                                 </div>
                                 <button
                                   type="button"
@@ -567,6 +603,26 @@ export default function ManageChannelsModal({ unit, onClose }: ManageChannelsMod
                                       </option>
                                     ))}
                                   </select>
+                                  {selectedYtChannel && (() => {
+                                    const selectedObj = availableYtChannels.find(c => (c.youtube_channel_id && c.youtube_channel_id === selectedYtChannel) || (c.id && c.id === selectedYtChannel));
+                                    const ytUrl = selectedObj ? getYoutubeUrl(selectedObj.youtube_channel_id || selectedObj.id, selectedObj.custom_url) : getYoutubeUrl(selectedYtChannel);
+                                    const displayTitle = selectedObj?.title || selectedYtChannel;
+                                    return (
+                                      <div className="flex items-center justify-between px-2.5 py-1.5 bg-gray-950 border border-red-800/50 rounded-lg text-xs">
+                                        <span className="text-gray-400">Verify Channel:</span>
+                                        <a
+                                          href={ytUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-red-400 hover:text-red-300 font-semibold flex items-center gap-1.5 group hover:underline truncate max-w-[280px]"
+                                          title={`Open YouTube Channel: ${displayTitle}`}
+                                        >
+                                          <span className="truncate">{displayTitle}</span>
+                                          <ExternalLink size={11} className="text-red-400 flex-shrink-0" />
+                                        </a>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                                 <button
                                   type="button"
