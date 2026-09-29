@@ -275,16 +275,18 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                                 <div className="space-y-2">
                                   {mData.yt_channels.map((yt, idx) => (
                                     <div key={idx} className="bg-gray-900/80 border border-gray-800/80 rounded-lg p-2 text-xs space-y-0.5">
-                                      <a
-                                          href={getYoutubeUrl(yt.channel_id)}
+                                      <div className="font-semibold text-gray-200 truncate">
+                                        <a
+                                          href={getYoutubeUrl(yt.channel_id || yt.title)}
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className="font-semibold text-gray-200 hover:text-red-400 transition-colors flex items-center justify-between gap-1 group"
-                                          title={`Open YouTube: ${yt.title}`}
+                                          className="text-gray-200 hover:text-red-400 font-semibold truncate flex items-center justify-between gap-1 group transition-colors"
+                                          title={`Open YouTube Channel: ${yt.title}`}
                                         >
                                           <span className="truncate group-hover:underline">{yt.title}</span>
-                                          <ExternalLink size={11} className="text-gray-500 group-hover:text-red-400 flex-shrink-0 opacity-70 group-hover:opacity-100 transition-all" />
+                                          <ExternalLink size={10} className="text-gray-500 group-hover:text-red-400 flex-shrink-0 opacity-70 group-hover:opacity-100 transition-all" />
                                         </a>
+                                      </div>
                                       <div className="text-white font-medium">
                                         Views - <span className="text-white font-bold">{formatNumber(yt.views)}</span>
                                       </div>
@@ -311,16 +313,18 @@ export default function PocDashboardView({ unitIdOverride }: { unitIdOverride?: 
                                 <div className="space-y-2">
                                   {mData.ig_channels.map((ig, idx) => (
                                     <div key={idx} className="bg-gray-900/80 border border-gray-800/80 rounded-lg p-2 text-xs space-y-0.5">
-                                      <a
+                                      <div className="font-semibold text-purple-300 truncate">
+                                        <a
                                           href={getInstagramUrl(ig.username)}
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className="font-semibold text-purple-300 hover:text-pink-300 transition-colors flex items-center justify-between gap-1 group"
-                                          title={`Open Instagram: @${ig.username}`}
+                                          className="text-purple-300 hover:text-pink-400 font-semibold truncate flex items-center justify-between gap-1 group transition-colors"
+                                          title={`Open Instagram Profile: @${ig.username}`}
                                         >
                                           <span className="truncate group-hover:underline">@{ig.username}</span>
-                                          <ExternalLink size={11} className="text-gray-500 group-hover:text-pink-400 flex-shrink-0 opacity-70 group-hover:opacity-100 transition-all" />
+                                          <ExternalLink size={10} className="text-gray-500 group-hover:text-pink-400 flex-shrink-0 opacity-70 group-hover:opacity-100 transition-all" />
                                         </a>
+                                      </div>
                                       <div className="text-white font-medium">
                                         Views - <span className="text-white font-bold">{formatNumber(ig.views)}</span>
                                       </div>
