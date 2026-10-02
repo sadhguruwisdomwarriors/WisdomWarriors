@@ -833,6 +833,12 @@ async def resume_pending_posts_for_run(
     if not pending_or_failed:
         raise HTTPException(status_code=409, detail="No pending or failed profiles found for this run")
 
+    for row in pending_or_failed:
+        row.status = "pending"
+        row.attempt_count = 0
+        row.error_message = None
+    await db.commit()
+
     all_usernames = [row.username for row in progress_rows if row.username]
     if not all_usernames:
         all_usernames = [row.username for row in await list_scrape_profiles(db)]
