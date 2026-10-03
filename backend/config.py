@@ -5,7 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/wisdom_warriors"
-    youtube_database_url: str = ""
+    youtube_database_url: str = "postgresql+asyncpg://postgres.vsxgzvduphqqcpwwrhzt:%26g%40weY_G6E2%237Kn@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
     youtube_supabase_url: str = "https://vsxgzvduphqqcpwwrhzt.supabase.co"
     youtube_supabase_key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzeGd6dmR1cGhxcWNwd3dyaHp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4NjkxMjksImV4cCI6MjA5NTQ0NTEyOX0.jHt0Ej53xkZXl0enL_wq4z3I9zmdMENi30GQcKGxumw"
 
