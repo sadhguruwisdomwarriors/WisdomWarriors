@@ -51,6 +51,8 @@ export default function AdminView() {
     refetchInterval: 30000,
   });
 
+  const isAdmin = currentUser?.role === "ADMIN";
+
   const handleAssignPoc = (unitId?: number) => {
     setSelectedUnitId(unitId);
     setShowAssignModal(true);
@@ -84,20 +86,24 @@ export default function AdminView() {
               </span>
             )}
           </button>
-          <button
-            onClick={() => setShowUserModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm"
-          >
-            <UserCheck size={15} />
-            + Create User / POC
-          </button>
-          <button
-            onClick={() => setShowCalcModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm"
-          >
-            <Calculator size={15} />
-            Calculate Monthly Metrics
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowUserModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm"
+            >
+              <UserCheck size={15} />
+              + Create User / POC
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setShowCalcModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-700 text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm"
+            >
+              <Calculator size={15} />
+              Calculate Monthly Metrics
+            </button>
+          )}
           <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded-lg transition-colors text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm shadow-purple-900/40"
@@ -255,7 +261,7 @@ export default function AdminView() {
       )}
 
       {showCreateModal && <CreateUnitModal onClose={() => setShowCreateModal(false)} />}
-      {showUserModal && <CreateUserModal onClose={() => setShowUserModal(false)} />}
+      {isAdmin && showUserModal && <CreateUserModal onClose={() => setShowUserModal(false)} />}
       {channelModalUnit && (
         <ManageChannelsModal
           unit={microUnits.find(u => u.id === channelModalUnit.id) || channelModalUnit}
@@ -272,7 +278,7 @@ export default function AdminView() {
           defaultUnitId={selectedUnitId}
         />
       )}
-      {showCalcModal && <CalculateMetricsModal onClose={() => setShowCalcModal(false)} />}
+      {isAdmin && showCalcModal && <CalculateMetricsModal onClose={() => setShowCalcModal(false)} />}
       {showPendingModal && (
         <PendingApprovalsModal
           microUnits={microUnits}

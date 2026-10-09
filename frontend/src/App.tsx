@@ -61,6 +61,7 @@ const ADMIN_SCRAPER_NAV = [
 function Sidebar({ currentUser, onLogout }: { currentUser: User; onLogout: () => void }) {
   const location = useLocation()
   const isAdmin = currentUser.role === "ADMIN"
+  const isMuLead = currentUser.role === "MU_LEAD"
   const adminActive = ADMIN_SCRAPER_NAV.some(item => location.pathname.startsWith(item.to))
   const [adminOpen, setAdminOpen] = useState(adminActive)
 
@@ -207,9 +208,11 @@ function Sidebar({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
                 "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border",
                 isAdmin 
                   ? "bg-purple-950/80 text-purple-300 border-purple-800" 
-                  : "bg-emerald-950/80 text-emerald-300 border-emerald-800"
+                  : isMuLead
+                    ? "bg-amber-950/80 text-amber-300 border-amber-800"
+                    : "bg-emerald-950/80 text-emerald-300 border-emerald-800"
               )}>
-                {currentUser.role}
+                {currentUser.role === "MU_LEAD" ? "MU LEAD" : currentUser.role}
               </span>
             </div>
           </div>
@@ -369,31 +372,42 @@ function AppContent({ currentUser, onLogout }: { currentUser: User; onLogout: ()
             <Route
               path="/"
               element={
-                <DashboardPage
-                  selectedSnapshotRunId={selectedSnapshotRunId}
-                  selectedScrapedAt={selectedSnapshotRun?.scraped_at}
-                  selectedMonth={selectedMonth || undefined}
-                />
+                isAdmin ? (
+                  <DashboardPage
+                    selectedSnapshotRunId={selectedSnapshotRunId}
+                    selectedScrapedAt={selectedSnapshotRun?.scraped_at}
+                    selectedMonth={selectedMonth || undefined}
+                  />
+                ) : (
+                  <Navigate to="/micro-units" replace />
+                )
               }
             />
             <Route
               path="/wisdom-warriors"
-              element={<WisdomWarriorsPage selectedSnapshotRunId={selectedSnapshotRunId} selectedMonth={selectedMonth || undefined} />}
+              element={
+                isAdmin ? (
+                  <WisdomWarriorsPage selectedSnapshotRunId={selectedSnapshotRunId} selectedMonth={selectedMonth || undefined} />
+                ) : (
+                  <Navigate to="/micro-units" replace />
+                )
+              }
             />
             <Route path="/micro-units" element={<MicroUnitsPage currentUser={currentUser} />} />
             <Route path="/micro-units/:id" element={<PocDashboardView />} />
-            <Route path="/scrape-instagram" element={<ScrapePage />} />
-            <Route path="/scrape-instagram/hashtag-scraper" element={<ScrapePage />} />
-            <Route path="/scrape-instagram/mentions-scraper" element={<ScrapePage />} />
-            <Route path="/scrape-youtube" element={<ScrapePage />} />
-            <Route path="/scrape-facebook" element={<ScrapePage />} />
-            <Route path="/compare-runs" element={<CompareRunsPage />} />
-            <Route path="/profiles" element={<ProfilesPage />} />
-            <Route path="/profiles/:username" element={<ProfileDetail />} />
-            <Route path="/profiles/:username/tagged-posts" element={<TaggedPostsPage />} />
-            <Route path="/posts" element={<PostsPage selectedSnapshotRunId={selectedSnapshotRunId} />} />
-            <Route path="/schedules" element={<SchedulesPage />} />
-            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/scrape-instagram" element={isAdmin ? <ScrapePage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/scrape-instagram/hashtag-scraper" element={isAdmin ? <ScrapePage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/scrape-instagram/mentions-scraper" element={isAdmin ? <ScrapePage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/scrape-youtube" element={isAdmin ? <ScrapePage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/scrape-facebook" element={isAdmin ? <ScrapePage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/compare-runs" element={isAdmin ? <CompareRunsPage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/profiles" element={isAdmin ? <ProfilesPage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/profiles/:username" element={isAdmin ? <ProfileDetail /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/profiles/:username/tagged-posts" element={isAdmin ? <TaggedPostsPage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/posts" element={isAdmin ? <PostsPage selectedSnapshotRunId={selectedSnapshotRunId} /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/schedules" element={isAdmin ? <SchedulesPage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="/chat" element={isAdmin ? <ChatPage /> : <Navigate to="/micro-units" replace />} />
+            <Route path="*" element={<Navigate to="/micro-units" replace />} />
           </Routes>
         </div>
       </main>

@@ -82,6 +82,7 @@ export default function CreateUserModal({ onClose }: CreateUserModalProps) {
               onChange={(e) => setRole(e.target.value)}
             >
               <option value="POC">Point of Coordinator (POC)</option>
+              <option value="MU_LEAD">Micro Unit Lead (MU Lead)</option>
               <option value="ADMIN">Admin</option>
             </select>
           </div>

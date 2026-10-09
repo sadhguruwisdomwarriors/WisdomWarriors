@@ -44,15 +44,16 @@ def _prepare_usernames(usernames: list[str]) -> list[str]:
 
 def run_posts_actor(
     usernames: list[str],
-    results_limit: int = 100,
+    results_limit: int = 1500,
     only_posts_newer_than: str | None = None,
     data_detail_level: str = "basicData",
     apify_token: str | None = None,
+    date_from: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], ApifyRunMetadata]:
     settings = get_settings()
     client = get_apify_client(apify_token)
     prepared_usernames = _prepare_usernames(usernames)
-    effective_results_limit = max(results_limit, len(prepared_usernames))
+    effective_results_limit = max(results_limit, 1500, len(prepared_usernames))
     run_input: dict[str, Any] = {
         "username": prepared_usernames,
         "resultsLimit": effective_results_limit,
@@ -62,6 +63,14 @@ def run_posts_actor(
     if only_posts_newer_than:
         value = only_posts_newer_than.strip()
         run_input["onlyPostsNewerThan"] = value if "day" in value.lower() else f"{value} days"
+    elif date_from:
+        try:
+            from datetime import date
+            d = date.fromisoformat(date_from[:10])
+            days = max(1, (date.today() - d).days + 2)
+            run_input["onlyPostsNewerThan"] = f"{days} days"
+        except Exception:
+            pass
 
     run_obj = client.actor(settings.apify_posts_actor_id).call(run_input=run_input)
         # --- BUG FIX: Safely convert 'Run' object to dictionary if needed ---

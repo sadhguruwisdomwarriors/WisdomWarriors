@@ -31,7 +31,7 @@ export default function ScrapePage() {
   const [activeRunId, setActiveRunId] = useState<number | undefined>(undefined)
   const [liveLogs, setLiveLogs] = useState<string[]>([])
   const [showPostsModal, setShowPostsModal] = useState(false)
-  const [resultsLimit, setResultsLimit] = useState(100)
+  const [resultsLimit, setResultsLimit] = useState(1500)
   const [newerThanValue, setNewerThanValue] = useState("")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")

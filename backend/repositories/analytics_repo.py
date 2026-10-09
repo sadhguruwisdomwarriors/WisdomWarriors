@@ -149,6 +149,90 @@ WISDOM_WARRIOR_ALLOWED_HASHTAGS = [
     "Awareness",
     "Culture",
     "Feminine",
+    # 45 newly added keywords from scraped database posts
+    "Ishagramotsavam",
+    "Ishagramotsavam2026",
+    "Gramotsavam",
+    "Sportingspiritofbharat",
+    "Ruralsports",
+    "Kailashwithsadhguru",
+    "Kailashwithsadhguru2026",
+    "Kailashyatra",
+    "Kailashmansarovar",
+    "Nepalflood",
+    "Nepalfloods",
+    "Nepalflashfloods",
+    "Nagapanchami",
+    "Sadhguruinmalaysia2026",
+    "Yogicscience",
+    "Yogicdiet",
+    "Sattvicfood",
+    "Shambho",
+    "Kalaripayattu",
+    "Dailyyoga",
+    "Kaalahathayoga",
+    "Yogaclasses",
+    "Travelingyogi",
+    "Dailymobility",
+    "Breathworkhealing",
+    "Spiritualjourney",
+    "Spiritualgrowth",
+    "Spiritualwisdom",
+    "Innerjourney",
+    "Innerwellbeing",
+    "Selfgrowth",
+    "Openingheart",
+    "Successmindset",
+    "Bhairaviyantra",
+    "Classicalhathayoga",
+    "Sadhguru360",
+    "Sadhgurulatest",
+    "Sadhgurutamil",
+    "Sadhgurutelugu",
+    "Sadhguruhindi",
+    "Sadhgurukannada",
+    "Sadhgurumarathi",
+    "Sadhgurumalayalam",
+    "Sadhgurubangla",
+    "Ishausa",
+    "Ishatamil",
+    "Adhiyogi",
+    "Climateaction",
+    "Soilhealth",
+    "Sustainability",
+    "Mysticsmusings",
+    "Sadhgurumargam",
+    "Shiv",
+    "Adiyogi_statue",
+    "Adiyogistatue",
+    "Adiyogitemple",
+    "Coimbatoreashram",
+    "Consciousplanetmovement",
+    "Dhyanalingatemple",
+    "Innerengineeringretreat",
+    "Isha_foundation",
+    "Ishacrafts",
+    "Ishahealthsolutions",
+    "Ishalifeindia",
+    "Lingabhairaviseva",
+    "Rudraksh",
+    "Savesoilmovement",
+    "Shivamantra",
+    "Shivashiva",
+    "Msrww26",
+    "Mahashivratri2026",
+    "Ishamahashivratri2026",
+    "Gurupurnima",
+    "Kalabhairava",
+    "Humansofisha",
+    "Krishna",
+    "Ishahathayoga",
+    "Sadhguruinlucknow",
+    "Grace",
+    "Yogicharya",
+    "Shakti",
+    "Ayurveda",
+    "Guru",
     # Multilingual
     "ஈஷா",
 ]
@@ -172,6 +256,13 @@ WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS = [
     "Ashram Life",
     "Coimbatore Ashram",
     "Linga Seva",
+    "Kala Bhairava",
+    "Kalabhairava",
+    "Humans of Isha",
+    "Guru Purnima",
+    "Isha Hatha Yoga",
+    "Shakti",
+    "Ayurveda",
     # Sadhguru & Quotes
     "Sadhguru",
     "Sadguru",
@@ -294,6 +385,35 @@ WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS = [
     "Awareness",
     "Culture",
     "Feminine",
+    # Newly added caption keywords
+    "Ishagramotsavam",
+    "Gramotsavam",
+    "Sporting Spirit of Bharat",
+    "Rural Sports",
+    "Kailash with Sadhguru",
+    "Kailash Yatra",
+    "Kailash Mansarovar",
+    "Nepal Flood",
+    "Nepal Floods",
+    "Nepalflood",
+    "Nepalfloods",
+    "Naga Panchami",
+    "Sadhguru Latest",
+    "Sadhguru 360",
+    "Yogic Science",
+    "Yogic Diet",
+    "Sattvic Food",
+    "Shambho",
+    "Kalaripayattu",
+    "Daily Yoga",
+    "Spiritual Journey",
+    "Spiritual Growth",
+    "Spiritual Wisdom",
+    "Inner Wellbeing",
+    "Self Growth",
+    "Opening Heart",
+    "Bhairavi Yantra",
+    "Classical Hatha Yoga",
     # Regional Languages
     "ஈஷா",
     "ईशा",
@@ -341,7 +461,54 @@ ALLOWED_HASHTAG_MAP = {
 ALLOWED_MENTION_MAP = {
     _normalize_mention(value): value for value in WISDOM_WARRIOR_ALLOWED_MENTIONS
 }
+ALLOWED_TAGGED_USER_MAP = {
+    _normalize_mention(value): value for value in WISDOM_WARRIOR_ALLOWED_TAGGED_USERS
+}
 ALLOWED_CAPTION_KEYWORDS = [value.casefold() for value in WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS]
+
+
+def check_post_matches_filters(
+    post,
+    hashtag_map: dict[str, str] | None = None,
+    mention_map: dict[str, str] | None = None,
+    tagged_user_map: dict[str, str] | None = None,
+    caption_keywords: list[str] | None = None,
+) -> tuple[bool, list[str], list[str], list[str]]:
+    h_map = hashtag_map if hashtag_map is not None else ALLOWED_HASHTAG_MAP
+    m_map = mention_map if mention_map is not None else ALLOWED_MENTION_MAP
+    t_map = tagged_user_map if tagged_user_map is not None else ALLOWED_TAGGED_USER_MAP
+    c_keywords = caption_keywords if caption_keywords is not None else ALLOWED_CAPTION_KEYWORDS
+
+    post_hashtags = getattr(post, "hashtags", None) or (post.get("hashtags") if isinstance(post, dict) else []) or []
+    post_mentions = getattr(post, "mentions", None) or (post.get("mentions") if isinstance(post, dict) else []) or []
+    raw_tagged = getattr(post, "tagged_users", None) or (post.get("tagged_users") if isinstance(post, dict) else []) or []
+    post_tagged = _extract_coauthor_usernames(raw_tagged)
+    caption_text = (getattr(post, "caption", None) or (post.get("caption") if isinstance(post, dict) else "") or "").casefold()
+
+    matched_hashtags = sorted(
+        {
+            h_map[normalized]
+            for normalized in (_normalize_hashtag(value) for value in post_hashtags)
+            if normalized in h_map
+        }
+    )
+    matched_mentions = sorted(
+        {
+            m_map[normalized]
+            for normalized in (_normalize_mention(value) for value in post_mentions)
+            if normalized in m_map
+        }
+    )
+    matched_tagged = sorted(
+        {
+            t_map[normalized]
+            for normalized in post_tagged
+            if normalized in t_map
+        }
+    )
+    caption_match = any(keyword in caption_text for keyword in c_keywords)
+    matches = bool(matched_hashtags or matched_mentions or matched_tagged or caption_match)
+    return matches, matched_hashtags, matched_mentions, matched_tagged
 
 
 def _vector_literal(values: list[float]) -> str:
@@ -727,12 +894,18 @@ async def get_wisdom_warriors_monthly_views_filtered(
     snapshot_run_id: int | None = None,
 ) -> list[dict]:
     all_profiles_result = await db.execute(
-        select(ScrapeProfile.username).where(ScrapeProfile.username.is_not(None))
+        select(ScrapeProfile.username, ScrapeProfile.category).where(ScrapeProfile.username.is_not(None))
     )
+    all_profiles_rows = all_profiles_result.all()
     tracked_usernames = {
-        _normalize_mention(username)
-        for username in all_profiles_result.scalars().all()
-        if isinstance(username, str) and username.strip()
+        _normalize_mention(u)
+        for u, _ in all_profiles_rows
+        if isinstance(u, str) and u.strip()
+    }
+    category_by_username = {
+        _normalize_mention(u): (cat or "Dedicated")
+        for u, cat in all_profiles_rows
+        if isinstance(u, str) and u.strip()
     }
 
     profile_query = select(ScrapeProfile)
@@ -781,7 +954,15 @@ async def get_wisdom_warriors_monthly_views_filtered(
         .where(PostSnapshot.run_id == resolved_snapshot_run_id)
     )
     post_result = await db.execute(post_query)
-    posts = post_result.scalars().all()
+    raw_posts = post_result.scalars().all()
+
+    # Deduplicate co-authored posts scraped under multiple channels in the same run
+    unique_posts_by_id = {}
+    for post in raw_posts:
+        pid = post.post_id
+        if pid not in unique_posts_by_id or (post.video_play_count or 0) > (unique_posts_by_id[pid].video_play_count or 0):
+            unique_posts_by_id[pid] = post
+    posts = list(unique_posts_by_id.values())
 
     active_hashtags = hashtags if hashtags else WISDOM_WARRIOR_ALLOWED_HASHTAGS
     active_mentions = mentions if mentions else WISDOM_WARRIOR_ALLOWED_MENTIONS
@@ -823,50 +1004,36 @@ async def get_wisdom_warriors_monthly_views_filtered(
         if not credited_usernames:
             continue
 
-        post_hashtags = post.hashtags or []
-        post_mentions = post.mentions or []
-        post_tagged_users = _extract_coauthor_usernames(post.tagged_users)
-        caption_text = (post.caption or "").casefold()
-
         matched_hashtags = []
         matched_mentions = []
         matched_tagged_users = []
-        caption_match = False
+        post_matches_filter = False
 
         if apply_filters:
-            matched_hashtags = sorted(
-                {
-                    hashtag_map[normalized]
-                    for normalized in (_normalize_hashtag(value) for value in post_hashtags)
-                    if normalized in hashtag_map
-                }
+            post_matches_filter, matched_hashtags, matched_mentions, matched_tagged_users = check_post_matches_filters(
+                post,
+                hashtag_map=hashtag_map,
+                mention_map=mention_map,
+                tagged_user_map=tagged_user_map,
+                caption_keywords=keyword_matches,
             )
-            matched_mentions = sorted(
-                {
-                    mention_map[normalized]
-                    for normalized in (_normalize_mention(value) for value in post_mentions)
-                    if normalized in mention_map
-                }
-            )
-            matched_tagged_users = sorted(
-                {
-                    tagged_user_map[normalized]
-                    for normalized in post_tagged_users
-                    if normalized in tagged_user_map
-                }
-            )
-            caption_match = any(keyword in caption_text for keyword in keyword_matches)
-
-            if not matched_hashtags and not matched_mentions and not matched_tagged_users and not caption_match:
-                continue
 
         shared_views = float(post.video_play_count or 0) / max(1, len(participant_usernames))
         for username_key in credited_usernames:
             summary = summary_by_username.get(username_key)
             if summary is None:
                 continue
+
+            user_category = category_by_username.get(username_key, "Dedicated")
+            is_ihi = user_category.strip().lower() == "in-house influencer"
+
+            # For Dedicated channels: ALL reels views are credited (no keyword filtering)
+            # For In-House Influencer channels: ONLY reels matching the filters are credited
+            if apply_filters and is_ihi and not post_matches_filter:
+                continue
+
             summary["total_views"] += shared_views
-            if apply_filters:
+            if apply_filters and post_matches_filter:
                 summary["matched_hashtags"] = sorted(set(summary["matched_hashtags"]) | set(matched_hashtags))
                 summary["matched_mentions"] = sorted(set(summary["matched_mentions"]) | set(matched_mentions))
                 summary["matched_tagged_users"] = sorted(

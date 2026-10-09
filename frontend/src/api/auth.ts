@@ -86,11 +86,11 @@ export async function getPendingRegistrations(): Promise<User[]> {
   return handleResponse<User[]>(res);
 }
 
-export async function approveUser(userId: number, microUnitId?: number): Promise<{ status: string; message: string; user: User; assigned_unit?: string }> {
+export async function approveUser(userId: number, microUnitId?: number, role?: string): Promise<{ status: string; message: string; user: User; assigned_unit?: string }> {
   const res = await fetch(`${API_URL}/api/auth/approve-user/${userId}`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ micro_unit_id: microUnitId || null })
+    body: JSON.stringify({ micro_unit_id: microUnitId || null, role: role || null })
   });
   return handleResponse<{ status: string; message: string; user: User; assigned_unit?: string }>(res);
 }

@@ -14,7 +14,7 @@ from backend.models.scrape_run import ScrapeRun
 from backend.models.profile import Profile
 from backend.models.scrape_profile import ScrapeProfile
 from backend.models.post_snapshot import PostSnapshot
-from backend.services.auth_service import get_current_user, require_admin, get_optional_user
+from backend.services.auth_service import get_current_user, require_admin, require_admin_or_mu_lead, get_optional_user
 from backend.services.monthly_calculation_service import calculate_monthly_metrics
 from backend.services.youtube_read_service import fetch_available_youtube_channels, calculate_youtube_monthly_metrics
 
@@ -53,7 +53,7 @@ async def check_unit_access(unit_id: int, user: Optional[User], db: AsyncSession
     unit = result.scalars().first()
     if not unit:
         raise HTTPException(status_code=404, detail="Micro Unit not found")
-    if user and user.role != "ADMIN" and unit.poc_user_id != user.id:
+    if user and user.role not in ("ADMIN", "MU_LEAD") and unit.poc_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not have permission to access or modify this Micro Unit")
     return unit
 
@@ -134,7 +134,7 @@ async def list_micro_units(db: AsyncSession = Depends(get_db), current_user: Opt
     return response
 
 @router.post("")
-async def create_micro_unit(request: MicroUnitCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def create_micro_unit(request: MicroUnitCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     unit = MicroUnit(unit_number=request.unit_number, name=request.name)
     db.add(unit)
     await db.commit()
@@ -142,7 +142,7 @@ async def create_micro_unit(request: MicroUnitCreate, db: AsyncSession = Depends
     return unit
 
 @router.put("/{id}")
-async def update_micro_unit(id: int, request: MicroUnitUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def update_micro_unit(id: int, request: MicroUnitUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     result = await db.execute(select(MicroUnit).where(MicroUnit.id == id))
     unit = result.scalars().first()
     if not unit:
@@ -156,7 +156,7 @@ async def update_micro_unit(id: int, request: MicroUnitUpdate, db: AsyncSession 
     return {"status": "updated"}
 
 @router.delete("/{id}")
-async def delete_micro_unit(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def delete_micro_unit(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     result = await db.execute(select(MicroUnit).where(MicroUnit.id == id))
     unit = result.scalars().first()
     if not unit:

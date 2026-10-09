@@ -5,6 +5,8 @@ from sqlalchemy.dialects.postgresql import insert
 from backend.models.micro_unit_channel import MicroUnitChannel
 from backend.models.post_snapshot import PostSnapshot
 from backend.models.monthly_channel_metric import MonthlyChannelMetric
+from backend.models.scrape_profile import ScrapeProfile
+from backend.repositories.analytics_repo import check_post_matches_filters
 
 
 def _get_prior_6_months(year: int, month: int) -> list[str]:
@@ -50,6 +52,7 @@ async def _get_views_and_posts_for_snapshot_month(
     run_id: int,
     month_str: str,
     target_usernames: set[str],
+    category_map: dict[str, str],
 ) -> tuple[dict[str, float], dict[str, int], dict[str, int], dict[str, int]]:
     stmt = (
         select(PostSnapshot)
@@ -60,7 +63,15 @@ async def _get_views_and_posts_for_snapshot_month(
         )
     )
     res = await db.execute(stmt)
-    posts = res.scalars().all()
+    raw_posts = res.scalars().all()
+
+    # Deduplicate co-authored posts scraped under multiple channels in the same run
+    unique_posts_by_id = {}
+    for p in raw_posts:
+        pid = p.post_id
+        if pid not in unique_posts_by_id or (p.video_play_count or 0) > (unique_posts_by_id[pid].video_play_count or 0):
+            unique_posts_by_id[pid] = p
+    posts = list(unique_posts_by_id.values())
 
     views_by_user = {u: 0.0 for u in target_usernames}
     post_counts = {u: 0 for u in target_usernames}
@@ -88,8 +99,17 @@ async def _get_views_and_posts_for_snapshot_month(
             or bool(p.video_view_count and p.video_view_count > 0)
         )
 
+        matches_filter, _, _, _ = check_post_matches_filters(p)
+
         for part in participants:
             if part in target_usernames:
+                user_cat = category_map.get(part, "Dedicated")
+                is_ihi = user_cat.strip().lower() == "in-house influencer"
+
+                # Dedicated channels get all posts/reels; IHI channels get only filtered ones
+                if is_ihi and not matches_filter:
+                    continue
+
                 views_by_user[part] += shared_views
                 post_counts[part] += 1
                 if is_reel:
@@ -112,6 +132,15 @@ async def calculate_monthly_metrics(
     if not channels:
         return {"channels_processed": 0}
 
+    profiles_result = await db.execute(
+        select(ScrapeProfile.username, ScrapeProfile.category).where(ScrapeProfile.username.is_not(None))
+    )
+    category_map = {
+        u.strip().lstrip("@").lower(): (cat or "Dedicated")
+        for u, cat in profiles_result.all()
+        if u and u.strip()
+    }
+
     target_year_month = f"{year}-{month:02d}"
     prior_months = _get_prior_6_months(year, month)
 
@@ -122,6 +151,28 @@ async def calculate_monthly_metrics(
     }
 
     channel_totals: dict[str, float] = {u: 0.0 for u in target_usernames}
+    s2_window_totals: dict[str, float] = {u: 0.0 for u in target_usernames}
+    channel_active_months: dict[str, set[str]] = {u: set() for u in target_usernames}
+
+    # Identify channels that were actively scraped in Snapshot 1
+    s1_check_stmt = (
+        select(PostSnapshot.owner_username, PostSnapshot.input_url, PostSnapshot.coauthor_producers)
+        .where(PostSnapshot.run_id == snapshot1_run_id)
+    )
+    s1_check_res = await db.execute(s1_check_stmt)
+    s1_rows = s1_check_res.all()
+    s1_active_users: set[str] = set()
+    for row in s1_rows:
+        owner = (row[0] or "").strip().lstrip("@").lower()
+        if owner:
+            s1_active_users.add(owner)
+        url = (row[1] or "").lower()
+        for uname in target_usernames:
+            if uname in url:
+                s1_active_users.add(uname)
+        coauthors = _extract_coauthors(row[2])
+        for ca in coauthors:
+            s1_active_users.add(ca)
 
     # 1. Calculate prior 6 months decay/growth delta (S2 - S1)
     for prior_m in prior_months:
@@ -130,17 +181,23 @@ async def calculate_monthly_metrics(
             run_id=snapshot1_run_id,
             month_str=prior_m,
             target_usernames=target_usernames,
+            category_map=category_map,
         )
-        s2_views, _, _, _ = await _get_views_and_posts_for_snapshot_month(
+        s2_views, s2_posts, _, _ = await _get_views_and_posts_for_snapshot_month(
             db=db,
             run_id=snapshot2_run_id,
             month_str=prior_m,
             target_usernames=target_usernames,
+            category_map=category_map,
         )
 
         for uname in target_usernames:
-            month_delta = max(0.0, s2_views[uname] - s1_views[uname])
-            channel_totals[uname] += month_delta
+            s2_window_totals[uname] += s2_views[uname]
+            if s2_views[uname] > 0 or s2_posts.get(uname, 0) > 0:
+                channel_active_months[uname].add(prior_m)
+            if uname in s1_active_users:
+                month_delta = max(0.0, s2_views[uname] - s1_views[uname])
+                channel_totals[uname] += month_delta
 
     # 2. Add target month views and post counts directly from S2
     target_s2_views, post_counts_by_user, reels_counts_by_user, static_counts_by_user = (
@@ -149,11 +206,33 @@ async def calculate_monthly_metrics(
             run_id=snapshot2_run_id,
             month_str=target_year_month,
             target_usernames=target_usernames,
+            category_map=category_map,
         )
     )
 
+    max_window_months = len(prior_months) + 1  # e.g., 6 prior months + 1 target month = 7 months
+
     for uname in target_usernames:
-        channel_totals[uname] += target_s2_views[uname]
+        s2_window_totals[uname] += target_s2_views[uname]
+        if target_s2_views[uname] > 0 or post_counts_by_user.get(uname, 0) > 0:
+            channel_active_months[uname].add(target_year_month)
+
+        if uname in s1_active_users:
+            channel_totals[uname] += target_s2_views[uname]
+        else:
+            # Channel was NOT scraped in Snapshot 1 (newly scraped in Snapshot 2).
+            # Avoid attributing multiple months of lifetime cumulative views to this single month.
+            # Dynamically determine the number of months based on available scraped data from start date:
+            if channel_active_months[uname]:
+                earliest_ym = min(channel_active_months[uname])
+                ey, em = map(int, earliest_ym.split("-"))
+                ty, tm = year, month
+                span_months = (ty - ey) * 12 + (tm - em) + 1
+                months_divisor = max(1, min(max_window_months, span_months))
+            else:
+                months_divisor = 1
+
+            channel_totals[uname] = s2_window_totals[uname] / months_divisor
 
     # 3. Upsert into monthly_channel_metrics
     prev_month_num = month - 1

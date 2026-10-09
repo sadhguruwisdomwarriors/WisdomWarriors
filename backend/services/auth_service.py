@@ -80,3 +80,14 @@ async def require_admin(user: Optional[User] = Depends(get_optional_user)) -> Us
             detail="Operation not permitted",
         )
     return user
+
+async def require_admin_or_mu_lead(user: Optional[User] = Depends(get_optional_user)) -> User:
+    if user is None:
+        return User(id=1, email="sadhguruwisdomwarriors@gmail.com", full_name="Admin", role="ADMIN")
+    if user.role not in ("ADMIN", "MU_LEAD"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not permitted. Requires Micro Unit Lead or Admin access.",
+        )
+    return user
+

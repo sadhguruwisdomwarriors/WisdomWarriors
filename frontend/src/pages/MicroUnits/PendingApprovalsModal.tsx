@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Check, Trash2, UserCheck, Clock, Building } from "lucide-react";
+import { X, Check, Trash2, UserCheck, Clock, Building, ShieldCheck } from "lucide-react";
 import { getPendingRegistrations, approveUser, rejectUser, type User } from "../../api/auth";
 import type { MicroUnit } from "../../api/microUnits";
 
@@ -12,6 +12,7 @@ interface PendingApprovalsModalProps {
 export default function PendingApprovalsModal({ onClose, microUnits }: PendingApprovalsModalProps) {
   const queryClient = useQueryClient();
   const [selectedUnits, setSelectedUnits] = useState<Record<number, number>>({});
+  const [selectedRoles, setSelectedRoles] = useState<Record<number, string>>({});
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const { data: pendingUsers = [], isLoading, error } = useQuery({
@@ -20,8 +21,8 @@ export default function PendingApprovalsModal({ onClose, microUnits }: PendingAp
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ userId, microUnitId }: { userId: number; microUnitId?: number }) =>
-      approveUser(userId, microUnitId),
+    mutationFn: ({ userId, microUnitId, role }: { userId: number; microUnitId?: number; role?: string }) =>
+      approveUser(userId, microUnitId, role),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["pendingRegistrations"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -57,7 +58,8 @@ export default function PendingApprovalsModal({ onClose, microUnits }: PendingAp
 
   const handleApprove = (user: User) => {
     const chosenUnitId = selectedUnits[user.id] || undefined;
-    approveMutation.mutate({ userId: user.id, microUnitId: chosenUnitId });
+    const chosenRole = selectedRoles[user.id] || "POC";
+    approveMutation.mutate({ userId: user.id, microUnitId: chosenUnitId, role: chosenRole });
   };
 
   const handleReject = (user: User) => {
@@ -161,20 +163,36 @@ export default function PendingApprovalsModal({ onClose, microUnits }: PendingAp
 
                     <div className="pt-2 border-t border-gray-850 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                       {/* Optional Unit Selection */}
-                      <div className="flex-1 flex items-center gap-2">
-                        <Building size={14} className="text-gray-500 flex-shrink-0" />
-                        <select
-                          className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white flex-1 focus:outline-none focus:border-purple-500"
-                          value={selectedUnits[user.id] || ""}
-                          onChange={(e) => handleUnitChange(user.id, e.target.value)}
-                        >
-                          <option value="">Assign to Micro Unit (Optional)...</option>
-                          {microUnits.map(unit => (
-                            <option key={unit.id} value={unit.id}>
-                              {unit.name} (Unit {unit.unit_number}){unit.poc_name ? ` - Current POC: ${unit.poc_name}` : ""}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="flex items-center gap-2 flex-1">
+                          <Building size={14} className="text-gray-500 flex-shrink-0" />
+                          <select
+                            className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white flex-1 focus:outline-none focus:border-purple-500"
+                            value={selectedUnits[user.id] || ""}
+                            onChange={(e) => handleUnitChange(user.id, e.target.value)}
+                          >
+                            <option value="">Assign to Micro Unit (Optional)...</option>
+                            {microUnits.map(unit => (
+                              <option key={unit.id} value={unit.id}>
+                                {unit.name} (Unit {unit.unit_number}){unit.poc_name ? ` - Current POC: ${unit.poc_name}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Role Selection */}
+                        <div className="flex items-center gap-1.5 sm:w-44">
+                          <ShieldCheck size={14} className="text-purple-400 flex-shrink-0" />
+                          <select
+                            className="bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white w-full focus:outline-none focus:border-purple-500"
+                            value={selectedRoles[user.id] || "POC"}
+                            onChange={(e) => setSelectedRoles(prev => ({ ...prev, [user.id]: e.target.value }))}
+                          >
+                            <option value="POC">Role: POC</option>
+                            <option value="MU_LEAD">Role: MU Lead</option>
+                            <option value="ADMIN">Role: Admin</option>
+                          </select>
+                        </div>
                       </div>
 
                       {/* Action buttons */}

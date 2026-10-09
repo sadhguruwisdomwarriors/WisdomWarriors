@@ -6,7 +6,7 @@ from sqlalchemy import select, delete
 from backend.db.engine import get_db
 from backend.models.user import User
 from backend.models.micro_unit import MicroUnit
-from backend.services.auth_service import hash_password, verify_password, create_access_token, get_current_user, require_admin, get_optional_user
+from backend.services.auth_service import hash_password, verify_password, create_access_token, get_current_user, require_admin, require_admin_or_mu_lead, get_optional_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -28,6 +28,7 @@ class UserCreate(BaseModel):
 
 class ApproveUserRequest(BaseModel):
     micro_unit_id: Optional[int] = None
+    role: Optional[str] = None
 
 @router.post("/register")
 async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
@@ -122,7 +123,7 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     }
 
 @router.get("/pending-registrations")
-async def list_pending_registrations(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def list_pending_registrations(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     result = await db.execute(select(User).where(User.status == "PENDING").order_by(User.created_at.desc()))
     users = result.scalars().all()
     return [
@@ -137,13 +138,17 @@ async def list_pending_registrations(db: AsyncSession = Depends(get_db), current
     ]
 
 @router.post("/approve-user/{id}")
-async def approve_user(id: int, request: ApproveUserRequest = ApproveUserRequest(), db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def approve_user(id: int, request: ApproveUserRequest = ApproveUserRequest(), db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     result = await db.execute(select(User).where(User.id == id))
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     user.status = "ACTIVE"
+    if request.role:
+        if current_user.role == "MU_LEAD" and request.role == "ADMIN":
+            raise HTTPException(status_code=403, detail="Micro Unit Lead cannot assign ADMIN role to users")
+        user.role = request.role
     
     # If a micro unit was chosen, assign this POC to the unit
     assigned_unit_name = None
@@ -171,7 +176,7 @@ async def approve_user(id: int, request: ApproveUserRequest = ApproveUserRequest
     }
 
 @router.post("/reject-user/{id}")
-async def reject_user(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def reject_user(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     result = await db.execute(select(User).where(User.id == id))
     user = result.scalars().first()
     if not user:
@@ -208,7 +213,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db), curr
     }
 
 @router.get("/users")
-async def list_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+async def list_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin_or_mu_lead)):
     result = await db.execute(select(User).where(User.status != "REJECTED").order_by(User.full_name.asc()))
     users = result.scalars().all()
     return [
