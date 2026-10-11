@@ -44,7 +44,7 @@ def _prepare_usernames(usernames: list[str]) -> list[str]:
 
 def run_posts_actor(
     usernames: list[str],
-    results_limit: int = 1500,
+    results_limit: int = 4000,
     only_posts_newer_than: str | None = None,
     data_detail_level: str = "basicData",
     apify_token: str | None = None,
@@ -53,7 +53,7 @@ def run_posts_actor(
     settings = get_settings()
     client = get_apify_client(apify_token)
     prepared_usernames = _prepare_usernames(usernames)
-    effective_results_limit = max(results_limit, 1500, len(prepared_usernames))
+    effective_results_limit = max(results_limit, 4000, len(prepared_usernames))
     run_input: dict[str, Any] = {
         "username": prepared_usernames,
         "resultsLimit": effective_results_limit,

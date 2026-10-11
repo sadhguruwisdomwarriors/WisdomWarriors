@@ -441,7 +441,7 @@ async def run_posts_scrape(
     scraper_type: str = "posts",
     trigger: str = "manual",
     schedule_id: int | None = None,
-    results_limit: int = 1500,
+    results_limit: int = 4000,
     only_posts_newer_than: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -513,7 +513,7 @@ async def run_posts_scrape(
         embedding_error_message: str | None = None
 
         async def _fetch_posts_for_username(username: str):
-            effective_limit = max(results_limit, 1500)
+            effective_limit = max(results_limit, 4000)
             return await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(
                     None,

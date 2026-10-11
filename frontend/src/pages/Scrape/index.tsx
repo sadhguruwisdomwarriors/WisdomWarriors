@@ -31,7 +31,7 @@ export default function ScrapePage() {
   const [activeRunId, setActiveRunId] = useState<number | undefined>(undefined)
   const [liveLogs, setLiveLogs] = useState<string[]>([])
   const [showPostsModal, setShowPostsModal] = useState(false)
-  const [resultsLimit, setResultsLimit] = useState(1500)
+  const [resultsLimit, setResultsLimit] = useState(4000)
   const [newerThanValue, setNewerThanValue] = useState("")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
@@ -271,7 +271,7 @@ export default function ScrapePage() {
                 <input
                   type="number"
                   min={1}
-                  max={500}
+                  max={10000}
                   value={resultsLimit}
                   onChange={e => setResultsLimit(Number(e.target.value))}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
