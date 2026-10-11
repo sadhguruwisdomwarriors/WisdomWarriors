@@ -107,8 +107,11 @@ When a channel is scraped for the first time in $S2$ and has **NO baseline in $S
   - `frontend/src/pages/Scrape/index.tsx`
 - **Why 4,000 is Mandatory:** Ultra high-volume channels (e.g., `@sadhguru.archives`) post hundreds of reels per month, reaching 2,100+ reels over a 6-month window. Setting the ceiling to 4,000 ensures no active channel has its catalog truncated, while the `onlyPostsNewerThan` date window keeps compute and costs bounded for lower volume channels.
 
-### B. Date Range Reflection
-- When `date_from` is selected in a scrape, the backend automatically converts the date range into days (`onlyPostsNewerThan`) and forwards it to the Apify Instagram Actor.
+### B. Date Range Reflection & Dynamic onlyPostsNewerThan
+- When `date_from` is selected in a scrape, the backend automatically converts the date range into days (`onlyPostsNewerThan`) and forwards it dynamically to the Apify Instagram Actor.
+
+### C. Skip Pinned Posts
+- **Rule:** `skipPinnedPosts: True` is **strictly retained** in Apify's `run_input` across all posts scraping runs to prevent pinned posts from distorting chronologically bounded pagination.
 
 ---
 
