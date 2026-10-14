@@ -67,34 +67,92 @@ Whether a monitored channel is the **original publisher/owner** or an **invited 
 
 ---
 
-## 3. Monthly Views Calculation Formula (6-Month Decay Window + Target Month)
+## 3. Monthly Views Calculation Architecture (6-Month Decay Window + Target Month)
 
-For any target calculation month $M$ (e.g., August 2026):
-- **Snapshot 1 ($S1$):** Baseline scrape run at the beginning of Month $M$ (e.g., Run 89 or Run 97).
-- **Snapshot 2 ($S2$):** Post-month scrape run at the beginning of Month $M+1$ (e.g., Run 111 or Run 112).
+For any target calculation month $M$ (e.g., August or September 2026):
+- **Snapshot 1 ($S1$):** Baseline scrape run at the beginning of Month $M$ (e.g., Run 89, 97, or 111).
+- **Snapshot 2 ($S2$):** Post-month scrape run at the beginning of Month $M+1$ (e.g., Run 111 or 112).
 
-### Calculation Steps:
-1. **Prior 6 Months Decay Window ($M-1$ down to $M-6$):**
-   - For each reel published between $(M-6)$ and $(M-1)$:
-     $$\Delta_{\text{prior}} = \max\left(0.0, S2\text{ Views} - S1\text{ Views}\right)$$
-   - *Decay protection:* If $S2 < S1$ (due to pagination cutoff or view re-indexing), $\Delta$ defaults to `0.0` (never negative).
-2. **Target Month New Uploads ($M$):**
+### Standard Calculation Pipeline:
+1. **Target Month New Uploads ($M$):**
    - For each reel published within Month $M$:
      $$\text{Views}_{M} = S2\text{ Views}$$
+2. **Prior 6 Months Decay Window ($M-1$ down to $M-6$):**
+   - Evaluated under the **6-Case Master Decay Specification** below.
 3. **Total Monthly Metric:**
    $$\text{Total Monthly Views} = \sum \text{Views}_{M} + \sum \Delta_{\text{prior}}$$
 
-### Special Handling: Newly Scraped Channels (No Snapshot 1 Baseline)
-When a channel is scraped for the first time in $S2$ and has **NO baseline in $S1$**:
+---
+
+### Master Decay & Missing Data Specification (Cases 1 to 6)
+
+When comparing $S1$ (Baseline) and $S2$ (Post-Scrape) across the prior 6-month decay window:
+
+#### Case 1: Partial Month Drop (The `@medicine_meets_yoga` Rule)
+- **Condition:** Channel has reels present in both $S1$ and $S2$, but 1 or more older reels were dropped/missed in $S2$ due to an Apify pagination cutoff ($S1 > 0$, but $S2 = 0$).
+- **Rule (Decay Growth Ratio):**
+  1. Calculate the channel's organic growth rate ($g$) from all its **surviving reels** (reels present in both $S1$ and $S2$):
+     $$g = \frac{\sum S2_{\text{surviving}} - \sum S1_{\text{surviving}}}{\sum S1_{\text{surviving}}}$$
+  2. Impute the estimated views for each dropped reel:
+     $$\Delta_{\text{dropped}} = S1 \times g$$
+     $$S2_{\text{estimated}} = S1 \times (1 + g)$$
+  3. The dropped reel receives its proportional organic decay growth instead of falsely being wiped out to 0.
+
+#### Case 2: Total Channel Dropout (The `@isha.persian` Rule)
+- **Condition:** The scraper failed completely for an entire channel in $S2$ (e.g., Instagram bot challenge / proxy block in < 20s), resulting in 0 reels scraped across all months ($S2 = 0$).
+- **Rule (S1 History Average Normalization):**
+  - Because $S2$ has 0 surviving reels, calculate the channel's monthly average using its available $S1$ history:
+    $$\text{Credited Monthly Views} = \frac{\text{Total } S1 \text{ Prior Window Views}}{\text{Count of Active Months in } S1}$$
+  - Accurately credits the channel with its typical monthly output (e.g., $\frac{1,069,428}{6} = 178,238\text{ views}$) rather than unfairly penalizing it with 0.0 views.
+
+#### Case 3: Reel Deleted by Creator (Creator Action)
+- **Condition:** A reel was present in $S1$, but the creator deleted or archived it on Instagram before $S2$.
+- **Detection:** Surrounding reels published before and after this timestamp survive in $S2$, but this specific middle reel is absent.
+- **Rule:**
+  $$\Delta_{\text{deleted}} = 0.0$$
+  - Zero growth is credited. Creators are never credited with decay growth on content they have permanently removed.
+
+#### Case 4: Zero or Negative Growth on Surviving Reels ($g \le 0$)
+- **Condition:** Surviving old reels gained 0 new views, or Instagram made a minor downward bot audit adjustment ($S2 \le S1$).
+- **Rule:**
+  $$g \le 0 \implies g = 0.0\%$$
+  $$\Delta_{\text{dropped}} = 0.0$$
+  - The Decay Protection Rule clamps growth at `0.0`. No negative views are deducted, and no fake growth is invented.
+
+#### Case 5: Viral Spike / Outlier Handling (Growth Rate > 5%, 10%, 15%)
+- **Condition:** One or more surviving reels experience an algorithmic viral explosion, causing the raw channel growth rate to spike (> 10%).
+- **Rule (Two-Tier Viral Isolation):**
+  1. **Viral Reel Itself:** Receives **100% full, uncapped credit** for its entire earned spike:
+     $$\Delta_{\text{viral reel}} = S2_{\text{actual}} - S1_{\text{actual}}$$
+  2. **Missing / Dropped Reels:** Do **not** inherit the viral multiplier. Instead, they use the **Median Reel Growth Rate** capped at a maximum of **10.0%**:
+     $$g_{\text{impute}} = \min\Big(\text{Median}(g_1, g_2, \dots, g_n), \;\; 10.0\%\Big)$$
+     $$\Delta_{\text{dropped}} = S1 \times g_{\text{impute}}$$
+  - Prevents viral spikes on one post from inventing unearned views on missing posts.
+
+#### Case 6: Newly Scraped Channel (No S1 Baseline — The `@transformwith_rd` Rule)
+- **Condition:** A channel is added to the system and scraped for the very first time in $S2$ ($S1 = 0$).
 - **The Problem:** Because $S1 = 0$, applying $\Delta = S2 - S1$ would treat all historical cumulative views as new growth in Month $M$, causing false inflation.
-- **The Rule (Normalization with Dynamic Active Months Divisor):**
+- **Rule (Dynamic Active Months Divisor):**
   1. Calculate the total cumulative views across the available scraped window in $S2$ (up to prior 6 months + target month):
      $$\text{Total Window Views} = \sum_{\text{available months}} S2\text{ Views}_m$$
-  2. Dynamically determine the number of active months based on available data from the start date (it is not always 7; it could be 6, 5, etc., depending on the earliest month of scraped data up to the target month):
-     $$\text{Months Divisor} = \text{Earliest Scraped Month to Target Month (inclusive)}$$
-  3. Divide the total by the dynamic months divisor:
+  2. Dynamically determine the active months from the earliest scraped month to target month (inclusive):
+     $$\text{Months Divisor} = \text{Earliest Scraped Month to Target Month}$$
+  3. Divide total window views by the dynamic divisor:
      $$\text{Total Monthly Views} = \frac{\text{Total Window Views}}{\text{Months Divisor}}$$
-  4. This monthly average is credited as the channel's total views for the month, accurately normalizing lifetime views based on the channel's actual scraped lifespan.
+  - Example: `@transformwith_rd` had 1,482,337 views over 7 months (March to Sept) $\to \frac{1,482,337}{7} = \mathbf{211,762.43\text{ views}}$.
+
+---
+
+### Quick Reference Matrix
+
+| Case | Scenario | Surviving Reels Treatment | Dropped Reels ($S2=0$) Treatment |
+| :---: | :--- | :---: | :---: |
+| **Case 1** | Partial pagination drop | Actual growth ($S2 - S1$) | Imputed: $S1 \times g_{\text{channel}}$ |
+| **Case 2** | Total channel crawl failure | None ($S2 = 0$) | Total Credit: $\frac{\text{Total } S1}{\text{Active Months in } S1}$ |
+| **Case 3** | Reel deleted by creator | Actual growth ($S2 - S1$) | $\Delta = 0.0$ |
+| **Case 4** | Zero / Negative growth | $\Delta = 0.0$ (clamped) | $\Delta = 0.0$ |
+| **Case 5** | Viral spike on surviving reel | **100% uncapped spike views** | Imputed: $S1 \times \text{Median}(g)$, capped at 10% |
+| **Case 6** | Newly added channel ($S1=0$) | Total Window Views | Total Credit: $\frac{\text{Total } S2}{\text{Active Months}}$ |
 
 ---
 
