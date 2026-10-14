@@ -1,12 +1,15 @@
 import asyncio
 import json
 import os
+import re
 import psycopg2
 from collections import defaultdict
 from datetime import datetime
+import numpy as np
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from types import SimpleNamespace
 
 from backend.repositories.analytics_repo import (
     WISDOM_WARRIOR_ALLOWED_HASHTAGS,
@@ -15,10 +18,8 @@ from backend.repositories.analytics_repo import (
     WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS,
     _normalize_hashtag,
     _normalize_mention,
-    _extract_coauthor_usernames,
     check_post_matches_filters
 )
-from types import SimpleNamespace
 
 DATABASE_URL = "postgresql://postgres.juxvmzccqbroqcoleobp:DH98ZW0BlCe4zV6C@aws-1-ap-south-1.pooler.supabase.com:5432/postgres"
 
@@ -59,10 +60,10 @@ def extract_coauthors(raw_coauthors) -> list[str]:
     return res
 
 def main():
-    print("="*80)
+    print("=" * 80)
     print("WISDOM WARRIORS — COMPLETE AUGUST & SEPTEMBER DELTA CALCULATION")
-    print("Strictly adhering to gemini.md specifications")
-    print("="*80)
+    print("Strictly adhering to gemini.md specifications (6-Case Master Specification)")
+    print("=" * 80)
 
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
@@ -122,29 +123,32 @@ def main():
     keyword_matches = [k.casefold() for k in WISDOM_WARRIOR_ALLOWED_CAPTION_KEYWORDS]
 
     # Pre-fetch post snapshots for runs 97, 111, 112
-    # Columns: post_id, run_id, owner_username, coauthor_producers, video_play_count, timestamp, caption, hashtags, mentions, tagged_users
     print("\nFetching post snapshots for runs 97, 111, 112...")
     cur.execute("""
-        SELECT post_id, run_id, owner_username, coauthor_producers, video_play_count, timestamp, caption, hashtags, mentions, tagged_users, type, product_type, video_view_count
+        SELECT post_id, run_id, owner_username, coauthor_producers, video_play_count, timestamp, caption, hashtags, mentions, tagged_users, type, product_type, video_view_count, url
         FROM post_snapshots
         WHERE run_id IN (97, 111, 112) AND timestamp IS NOT NULL;
     """)
     all_raw_posts = cur.fetchall()
     print(f"Fetched {len(all_raw_posts)} total post rows.")
 
-    # Deduplicate posts per run by post_id (keeping highest video_play_count)
+    shortcode_regex = re.compile(r'/p/([^/?#&]+)|/reel/([^/?#&]+)')
+
+    # Deduplicate posts per run by shortcode (keeping highest video_play_count)
     posts_by_run = defaultdict(dict)
     for row in all_raw_posts:
-        pid, rid, owner, coauthors, vpc, ts, caption, hashtags, mentions, tagged_users, ptype, prod_type, vvc = row
+        pid, rid, owner, coauthors, vpc, ts, caption, hashtags, mentions, tagged_users, ptype, prod_type, vvc, url = row
+        m = shortcode_regex.search(url or '')
+        sc = (m.group(1) or m.group(2)) if m else (url or pid)
         vpc = vpc or 0
-        if pid not in posts_by_run[rid] or vpc > (posts_by_run[rid][pid]["vpc"]):
-            posts_by_run[rid][pid] = {
-                "post_id": pid,
+
+        if sc not in posts_by_run[rid] or vpc > posts_by_run[rid][sc]["vpc"]:
+            posts_by_run[rid][sc] = {
+                "shortcode": sc,
                 "owner": (owner or "").strip().lstrip("@").lower(),
                 "coauthors": extract_coauthors(coauthors),
                 "vpc": vpc,
                 "ts": ts,
-                "month_str": ts.strftime("%Y-%m"),
                 "caption": caption or "",
                 "hashtags": hashtags or [],
                 "mentions": mentions or [],
@@ -161,30 +165,25 @@ def main():
     print(f"Unique posts in Run 111: {len(posts_by_run[111])}")
     print(f"Unique posts in Run 112: {len(posts_by_run[112])}")
 
-    def compute_month_views_and_posts(run_id: int, month_str: str):
-        views_by_user = defaultdict(float)
-        posts_by_user = defaultdict(int)
-        reels_by_user = defaultdict(int)
+    # Build direct index: channel_posts[run_id][channel_clean_username][shortcode]
+    print("\nIndexing posts by channel and applying taxonomy filters...")
+    channel_posts = defaultdict(lambda: defaultdict(dict))
 
-        run_posts = posts_by_run[run_id]
-        for p in run_posts.values():
-            if p["month_str"] != month_str:
-                continue
-
+    for rid, sc_dict in posts_by_run.items():
+        for sc, p in sc_dict.items():
             owner = p["owner"]
             coauthors = p["coauthors"]
             participants = []
             for part in [owner, *coauthors]:
                 if part and part not in participants:
                     participants.append(part)
-
             if not participants:
                 continue
 
             split_factor = max(1, len(participants))
             shared_views = float(p["vpc"]) / split_factor
+            ym = p["ts"].strftime("%Y-%m")
 
-            # Filter check
             post_obj = SimpleNamespace(
                 caption=p["caption"],
                 hashtags=p["hashtags"],
@@ -204,134 +203,157 @@ def main():
                     if is_ihi and not matches_filter:
                         continue
 
-                    views_by_user[part] += shared_views
-                    posts_by_user[part] += 1
-                    if p["is_reel"]:
-                        reels_by_user[part] += 1
+                    channel_posts[rid][part][sc] = {
+                        "shortcode": sc,
+                        "vpc": p["vpc"],
+                        "divided_views": shared_views,
+                        "ts": p["ts"],
+                        "ym": ym,
+                        "is_reel": p["is_reel"]
+                    }
 
-        return views_by_user, posts_by_user, reels_by_user
+    def calculate_month_metrics(target_year: int, target_month: int, s1_run_id: int, s2_run_id: int):
+        target_ym = f"{target_year}-{target_month:02d}"
+        prior_months = get_prior_6_months(target_year, target_month)
+        prior_months_set = set(prior_months)
+        window_months_set = prior_months_set | {target_ym}
 
-    def get_active_users_in_run(run_id: int) -> set[str]:
-        active = set()
-        for p in posts_by_run[run_id].values():
-            if p["owner"]:
-                active.add(p["owner"])
-            for ca in p["coauthors"]:
-                active.add(ca)
-        return active
+        results = {}
+        for uname in target_usernames:
+            s1_posts = channel_posts[s1_run_id].get(uname, {})
+            s2_posts = channel_posts[s2_run_id].get(uname, {})
 
-    s1_active_users_run97 = get_active_users_in_run(97)
-    s1_active_users_run111 = get_active_users_in_run(111)
+            s1_prior = {sc: p for sc, p in s1_posts.items() if p["ym"] in prior_months_set}
+            s2_prior = {sc: p for sc, p in s2_posts.items() if p["ym"] in prior_months_set}
+            s2_target = {sc: p for sc, p in s2_posts.items() if p["ym"] == target_ym}
 
-    # -------------------------------------------------------------
-    # 3. CALCULATE AUGUST 2026 (S1 = 97, S2 = 111)
-    # -------------------------------------------------------------
+            # Case 6: Newly Scraped Channel (S1 = 0, S2 > 0)
+            if len(s1_posts) == 0 and len(s2_posts) > 0:
+                s2_window_posts = {sc: p for sc, p in s2_posts.items() if p["ym"] in window_months_set}
+                active_months = {p["ym"] for p in s2_window_posts.values() if p["divided_views"] > 0}
+                if active_months:
+                    earliest_ym = min(active_months)
+                    ey, em = map(int, earliest_ym.split("-"))
+                    span = (target_year - ey) * 12 + (target_month - em) + 1
+                    divisor = max(1, min(7, span))
+                else:
+                    divisor = 1
+                tot_window_views = sum(p["divided_views"] for p in s2_window_posts.values())
+                monthly_total = tot_window_views / divisor
+                target_new_views = sum(p["divided_views"] for p in s2_target.values())
+
+                results[uname] = {
+                    "total_views": monthly_total,
+                    "new_views": target_new_views,
+                    "decay_delta": max(0.0, monthly_total - target_new_views),
+                    "post_count": len(s2_target),
+                    "reel_count": sum(1 for p in s2_target.values() if p["is_reel"]),
+                    "calc_type": f"Case 6: Newly Scraped ({divisor} mo avg)",
+                    "divisor": divisor
+                }
+                continue
+
+            # Case 2: Total Channel Crawl Dropout (S1 > 0, S2 = 0)
+            if len(s1_posts) > 0 and len(s2_posts) == 0:
+                active_s1_months = {p["ym"] for p in s1_prior.values() if p["divided_views"] > 0}
+                divisor = max(1, len(active_s1_months))
+                tot_s1_prior_views = sum(p["divided_views"] for p in s1_prior.values())
+                monthly_total = tot_s1_prior_views / divisor
+                results[uname] = {
+                    "total_views": monthly_total,
+                    "new_views": 0.0,
+                    "decay_delta": monthly_total,
+                    "post_count": 0,
+                    "reel_count": 0,
+                    "calc_type": f"Case 2: Total Crawl Dropout ({divisor} mo S1 avg)",
+                    "divisor": divisor
+                }
+                continue
+
+            if len(s1_posts) == 0 and len(s2_posts) == 0:
+                results[uname] = {
+                    "total_views": 0.0,
+                    "new_views": 0.0,
+                    "decay_delta": 0.0,
+                    "post_count": 0,
+                    "reel_count": 0,
+                    "calc_type": "No Data",
+                    "divisor": "-"
+                }
+                continue
+
+            # Surviving channels (Cases 1, 3, 4, 5)
+            new_views = sum(p["divided_views"] for p in s2_target.values())
+            post_count = len(s2_target)
+            reel_count = sum(1 for p in s2_target.values() if p["is_reel"])
+
+            surviving_scs = set(s1_prior.keys()) & set(s2_prior.keys())
+            dropped_scs = set(s1_prior.keys()) - set(s2_prior.keys())
+            new_prior_scs = set(s2_prior.keys()) - set(s1_prior.keys())
+
+            surv_delta = 0.0
+            surv_s1_tot = 0.0
+            surv_s2_tot = 0.0
+            rates = []
+            for sc in surviving_scs:
+                v1 = s1_prior[sc]["divided_views"]
+                v2 = s2_prior[sc]["divided_views"]
+                d = max(0.0, v2 - v1)
+                surv_delta += d
+                surv_s1_tot += v1
+                surv_s2_tot += v2
+                if v1 > 0:
+                    rates.append((v2 - v1) / v1)
+
+            # Handle dropped reels under Cases 1, 4, 5
+            dropped_delta = 0.0
+            calc_case = "Standard Delta (S2 - S1 + New)"
+            if dropped_scs:
+                if surv_s1_tot > 0:
+                    g_agg = (surv_s2_tot - surv_s1_tot) / surv_s1_tot
+                    g_median = float(np.median(rates)) if rates else 0.0
+
+                    # Case 5 vs Case 1 & 4
+                    if g_agg > 0.10 or any(r > 0.15 for r in rates):
+                        g_impute = min(max(0.0, g_median), 0.10)
+                        calc_case = f"Case 5: Viral Spike Isolated + Imputed ({g_impute*100:.2f}%)"
+                    elif g_agg <= 0.0:
+                        g_impute = 0.0
+                        calc_case = "Case 4: Zero/Negative Growth Clamped"
+                    else:
+                        g_impute = g_agg
+                        calc_case = f"Case 1: Partial Drop Imputed ({g_impute*100:.2f}%)"
+                else:
+                    g_impute = 0.0
+                    calc_case = "Case 1: Dropped with No Surviving Delta"
+
+                for sc in dropped_scs:
+                    v1 = s1_prior[sc]["divided_views"]
+                    dropped_delta += v1 * g_impute
+
+            new_prior_delta = sum(s2_prior[sc]["divided_views"] for sc in new_prior_scs)
+            total_decay = surv_delta + dropped_delta + new_prior_delta
+            total_views = new_views + total_decay
+
+            results[uname] = {
+                "total_views": total_views,
+                "new_views": new_views,
+                "decay_delta": total_decay,
+                "post_count": post_count,
+                "reel_count": reel_count,
+                "calc_type": calc_case,
+                "divisor": "-"
+            }
+        return results
+
+    # 3. Calculate August and September 2026
     print("\nCalculating August 2026 metrics (S1=97, S2=111)...")
-    aug_prior_months = get_prior_6_months(2026, 8)  # ['2026-07', '2026-06', '2026-05', '2026-04', '2026-03', '2026-02']
-    
-    aug_decay_deltas = defaultdict(float)
-    aug_s2_window_totals = defaultdict(float)
-    aug_channel_active_months = defaultdict(set)
+    aug_res = calculate_month_metrics(2026, 8, 97, 111)
 
-    for prior_m in aug_prior_months:
-        s1_views, _, _ = compute_month_views_and_posts(97, prior_m)
-        s2_views, s2_posts, _ = compute_month_views_and_posts(111, prior_m)
-
-        for uname in target_usernames:
-            aug_s2_window_totals[uname] += s2_views[uname]
-            if s2_views[uname] > 0 or s2_posts[uname] > 0:
-                aug_channel_active_months[uname].add(prior_m)
-            if uname in s1_active_users_run97:
-                month_delta = max(0.0, s2_views[uname] - s1_views[uname])
-                aug_decay_deltas[uname] += month_delta
-
-    # Target month new uploads (August 2026) from Run 111
-    aug_new_views, aug_post_counts, aug_reel_counts = compute_month_views_and_posts(111, "2026-08")
-
-    aug_final_totals = {}
-    aug_calc_type = {}
-    aug_divisors = {}
-
-    for uname in target_usernames:
-        aug_s2_window_totals[uname] += aug_new_views[uname]
-        if aug_new_views[uname] > 0 or aug_post_counts[uname] > 0:
-            aug_channel_active_months[uname].add("2026-08")
-
-        if uname in s1_active_users_run97:
-            # Baseline exists in S1 -> New Uploads + 6-month decay delta
-            total_views = aug_new_views[uname] + aug_decay_deltas[uname]
-            aug_final_totals[uname] = total_views
-            aug_calc_type[uname] = "Standard Delta (S2 - S1 + New)"
-            aug_divisors[uname] = "-"
-        else:
-            # Newly scraped in Run 111 -> Normalized lifespan average
-            if aug_channel_active_months[uname]:
-                earliest_ym = min(aug_channel_active_months[uname])
-                ey, em = map(int, earliest_ym.split("-"))
-                span_months = (2026 - ey) * 12 + (8 - em) + 1
-                months_divisor = max(1, min(7, span_months))
-            else:
-                months_divisor = 1
-            total_views = aug_s2_window_totals[uname] / months_divisor
-            aug_final_totals[uname] = total_views
-            aug_calc_type[uname] = f"New Channel Normalized ({months_divisor} mo avg)"
-            aug_divisors[uname] = months_divisor
-
-    # -------------------------------------------------------------
-    # 4. CALCULATE SEPTEMBER 2026 (S1 = 111, S2 = 112)
-    # -------------------------------------------------------------
     print("Calculating September 2026 metrics (S1=111, S2=112)...")
-    sep_prior_months = get_prior_6_months(2026, 9)  # ['2026-08', '2026-07', '2026-06', '2026-05', '2026-04', '2026-03']
-    
-    sep_decay_deltas = defaultdict(float)
-    sep_s2_window_totals = defaultdict(float)
-    sep_channel_active_months = defaultdict(set)
+    sep_res = calculate_month_metrics(2026, 9, 111, 112)
 
-    for prior_m in sep_prior_months:
-        s1_views, _, _ = compute_month_views_and_posts(111, prior_m)
-        s2_views, s2_posts, _ = compute_month_views_and_posts(112, prior_m)
-
-        for uname in target_usernames:
-            sep_s2_window_totals[uname] += s2_views[uname]
-            if s2_views[uname] > 0 or s2_posts[uname] > 0:
-                sep_channel_active_months[uname].add(prior_m)
-            if uname in s1_active_users_run111:
-                month_delta = max(0.0, s2_views[uname] - s1_views[uname])
-                sep_decay_deltas[uname] += month_delta
-
-    # Target month new uploads (September 2026) from Run 112
-    sep_new_views, sep_post_counts, sep_reel_counts = compute_month_views_and_posts(112, "2026-09")
-
-    sep_final_totals = {}
-    sep_calc_type = {}
-    sep_divisors = {}
-
-    for uname in target_usernames:
-        sep_s2_window_totals[uname] += sep_new_views[uname]
-        if sep_new_views[uname] > 0 or sep_post_counts[uname] > 0:
-            sep_channel_active_months[uname].add("2026-09")
-
-        if uname in s1_active_users_run111:
-            total_views = sep_new_views[uname] + sep_decay_deltas[uname]
-            sep_final_totals[uname] = total_views
-            sep_calc_type[uname] = "Standard Delta (S2 - S1 + New)"
-            sep_divisors[uname] = "-"
-        else:
-            if sep_channel_active_months[uname]:
-                earliest_ym = min(sep_channel_active_months[uname])
-                ey, em = map(int, earliest_ym.split("-"))
-                span_months = (2026 - ey) * 12 + (9 - em) + 1
-                months_divisor = max(1, min(7, span_months))
-            else:
-                months_divisor = 1
-            total_views = sep_s2_window_totals[uname] / months_divisor
-            sep_final_totals[uname] = total_views
-            sep_calc_type[uname] = f"New Channel Normalized ({months_divisor} mo avg)"
-            sep_divisors[uname] = months_divisor
-
-    # -------------------------------------------------------------
-    # 5. SYNC / UPSERT INTO monthly_channel_metrics TABLE
-    # -------------------------------------------------------------
+    # 4. Sync / Upsert into monthly_channel_metrics table
     print("\nSyncing calculated metrics into monthly_channel_metrics table...")
     upsert_sql = """
         INSERT INTO monthly_channel_metrics (
@@ -361,9 +383,10 @@ def main():
         ig_id = prof["instagram_id"]
 
         # August metric
-        aug_v = aug_final_totals.get(clean_u, 0.0)
-        aug_p = aug_post_counts.get(clean_u, 0)
-        aug_r = aug_reel_counts.get(clean_u, 0)
+        aug_data = aug_res.get(clean_u, {})
+        aug_v = aug_data.get("total_views", 0.0)
+        aug_p = aug_data.get("post_count", 0)
+        aug_r = aug_data.get("reel_count", 0)
         aug_s = aug_p - aug_r
         aug_vpp = aug_v / aug_p if aug_p > 0 else 0.0
 
@@ -373,9 +396,10 @@ def main():
         ))
 
         # September metric
-        sep_v = sep_final_totals.get(clean_u, 0.0)
-        sep_p = sep_post_counts.get(clean_u, 0)
-        sep_r = sep_reel_counts.get(clean_u, 0)
+        sep_data = sep_res.get(clean_u, {})
+        sep_v = sep_data.get("total_views", 0.0)
+        sep_p = sep_data.get("post_count", 0)
+        sep_r = sep_data.get("reel_count", 0)
         sep_s = sep_p - sep_r
         sep_vpp = sep_v / sep_p if sep_p > 0 else 0.0
 
@@ -389,13 +413,10 @@ def main():
     conn.commit()
     print("Database sync completed successfully.")
 
-    # -------------------------------------------------------------
-    # 6. BUILD EXCEL WORKBOOK REPORT
-    # -------------------------------------------------------------
+    # 5. Build Comprehensive Excel Workbook Report
     print("\nGenerating comprehensive Excel workbook...")
     wb = openpyxl.Workbook()
-    # Remove default sheet
-    wb.remove(wb.active)
+    wb.remove(wb.active)  # Remove default sheet
 
     # Styles
     navy_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
@@ -403,8 +424,6 @@ def main():
     header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
     alt_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
     highlight_fill = PatternFill(start_color="EDE9FE", end_color="EDE9FE", fill_type="solid")
-    green_fill = PatternFill(start_color="ECFDF5", end_color="ECFDF5", fill_type="solid")
-    red_fill = PatternFill(start_color="FEF2F2", end_color="FEF2F2", fill_type="solid")
 
     white_bold = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
     white_title = Font(name="Segoe UI", size=15, bold=True, color="FFFFFF")
@@ -413,7 +432,6 @@ def main():
     dark_regular = Font(name="Segoe UI", size=9, bold=False, color="1E293B")
     green_bold = Font(name="Segoe UI", size=9, bold=True, color="047857")
     red_bold = Font(name="Segoe UI", size=9, bold=True, color="B91C1C")
-    gray_regular = Font(name="Segoe UI", size=9, bold=False, color="64748B")
 
     thin_border_side = Side(style="thin", color="E2E8F0")
     thin_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
@@ -423,7 +441,6 @@ def main():
     align_left = Alignment(horizontal="left", vertical="center")
     align_right = Alignment(horizontal="right", vertical="center")
 
-    # Aggregates for executive summary
     cat_summary = {
         "Dedicated": {"aug_views": 0.0, "aug_posts": 0, "sep_views": 0.0, "sep_posts": 0, "count": 0},
         "In-house influencer": {"aug_views": 0.0, "aug_posts": 0, "sep_views": 0.0, "sep_posts": 0, "count": 0}
@@ -433,18 +450,17 @@ def main():
         c = prof["category"]
         u = prof["clean_username"]
         cat_summary[c]["count"] += 1
-        cat_summary[c]["aug_views"] += aug_final_totals.get(u, 0.0)
-        cat_summary[c]["aug_posts"] += aug_post_counts.get(u, 0)
-        cat_summary[c]["sep_views"] += sep_final_totals.get(u, 0.0)
-        cat_summary[c]["sep_posts"] += sep_post_counts.get(u, 0)
+        cat_summary[c]["aug_views"] += aug_res.get(u, {}).get("total_views", 0.0)
+        cat_summary[c]["aug_posts"] += aug_res.get(u, {}).get("post_count", 0)
+        cat_summary[c]["sep_views"] += sep_res.get(u, {}).get("total_views", 0.0)
+        cat_summary[c]["sep_posts"] += sep_res.get(u, {}).get("post_count", 0)
 
     # -------------------------------------------------------------
-    # TAB 1: EXECUTIVE SUMMARY
+    # TAB 1: EXECUTIVE 80-20 SUMMARY
     # -------------------------------------------------------------
     ws1 = wb.create_sheet(title="Executive 80-20 Summary")
     ws1.views.sheetView[0].showGridLines = True
 
-    # Title Banner
     ws1.merge_cells("A1:G1")
     ws1["A1"] = "Wisdom Warriors Instagram Analytics — August vs. September 2026 Executive Summary"
     ws1["A1"].font = white_title
@@ -452,7 +468,7 @@ def main():
     ws1["A1"].alignment = align_left
 
     ws1.merge_cells("A2:G2")
-    ws1["A2"] = "Strict compliance with gemini.md specifications | Run 97 -> Run 111 -> Run 112 Delta Attribution"
+    ws1["A2"] = "Strict compliance with gemini.md 6-Case Master Specification | Run 97 -> Run 111 -> Run 112"
     ws1["A2"].font = white_subtitle
     ws1["A2"].fill = header_fill
     ws1["A2"].alignment = align_left
@@ -460,7 +476,6 @@ def main():
     ws1.row_dimensions[1].height = 28
     ws1.row_dimensions[2].height = 18
 
-    # Category Table
     headers_t1 = [
         "Category Architecture", "Total Channels", "August 2026 Delta Views", "August New Posts",
         "September 2026 Delta Views", "September New Posts", "MoM Growth %"
@@ -501,7 +516,6 @@ def main():
         ws1.row_dimensions[r].height = 20
         r += 1
 
-    # Grand Total Row
     tot_aug_v = cat_summary["Dedicated"]["aug_views"] + cat_summary["In-house influencer"]["aug_views"]
     tot_aug_p = cat_summary["Dedicated"]["aug_posts"] + cat_summary["In-house influencer"]["aug_posts"]
     tot_sep_v = cat_summary["Dedicated"]["sep_views"] + cat_summary["In-house influencer"]["sep_views"]
@@ -541,11 +555,11 @@ def main():
     ws1.row_dimensions[r].height = 22
     r += 1
 
-    sorted_by_sep = sorted(profile_list, key=lambda p: sep_final_totals.get(p["clean_username"], 0.0), reverse=True)
+    sorted_by_sep = sorted(profile_list, key=lambda p: sep_res.get(p["clean_username"], {}).get("total_views", 0.0), reverse=True)
     for rank, p in enumerate(sorted_by_sep[:10], 1):
         u = p["clean_username"]
-        av = aug_final_totals.get(u, 0.0)
-        sv = sep_final_totals.get(u, 0.0)
+        av = aug_res.get(u, {}).get("total_views", 0.0)
+        sv = sep_res.get(u, {}).get("total_views", 0.0)
         gw = ((sv - av) / av * 100) if av > 0 else 0.0
 
         ws1.cell(row=r, column=1, value=rank).alignment = align_center
@@ -587,19 +601,22 @@ def main():
     ws2.row_dimensions[1].height = 26
 
     # Sort master matrix: Dedicated first, then by September views desc
-    sorted_profiles = sorted(profile_list, key=lambda p: (0 if p["category"] == "Dedicated" else 1, -sep_final_totals.get(p["clean_username"], 0.0)))
+    sorted_profiles = sorted(profile_list, key=lambda p: (0 if p["category"] == "Dedicated" else 1, -sep_res.get(p["clean_username"], {}).get("total_views", 0.0)))
 
     for idx, p in enumerate(sorted_profiles, 1):
         row_num = idx + 1
         u = p["clean_username"]
-        av = aug_final_totals.get(u, 0.0)
-        ap = aug_post_counts.get(u, 0)
-        ar = aug_reel_counts.get(u, 0)
+        a_data = aug_res.get(u, {})
+        s_data = sep_res.get(u, {})
+
+        av = a_data.get("total_views", 0.0)
+        ap = a_data.get("post_count", 0)
+        ar = a_data.get("reel_count", 0)
         avpp = av / ap if ap > 0 else 0.0
 
-        sv = sep_final_totals.get(u, 0.0)
-        sp = sep_post_counts.get(u, 0)
-        sr = sep_reel_counts.get(u, 0)
+        sv = s_data.get("total_views", 0.0)
+        sp = s_data.get("post_count", 0)
+        sr = s_data.get("reel_count", 0)
         svpp = sv / sp if sp > 0 else 0.0
 
         net_change = sv - av
@@ -667,17 +684,19 @@ def main():
     for idx, p in enumerate(sorted_profiles, 1):
         row_num = idx + 1
         u = p["clean_username"]
+        a_data = aug_res.get(u, {})
+
         ws3.cell(row=row_num, column=1, value=idx).alignment = align_center
         ws3.cell(row=row_num, column=2, value=f"@{p['username']}")
         ws3.cell(row=row_num, column=3, value=p["category"])
-        ws3.cell(row=row_num, column=4, value=aug_calc_type.get(u, "-"))
-        ws3.cell(row=row_num, column=5, value=str(aug_divisors.get(u, "-"))).alignment = align_center
+        ws3.cell(row=row_num, column=4, value=a_data.get("calc_type", "-"))
+        ws3.cell(row=row_num, column=5, value=str(a_data.get("divisor", "-"))).alignment = align_center
 
-        ws3.cell(row=row_num, column=6, value=round(aug_new_views.get(u, 0.0))).number_format = "#,##0"
-        ws3.cell(row=row_num, column=7, value=round(aug_decay_deltas.get(u, 0.0))).number_format = "#,##0"
-        ws3.cell(row=row_num, column=8, value=round(aug_final_totals.get(u, 0.0))).number_format = "#,##0"
-        ws3.cell(row=row_num, column=9, value=aug_post_counts.get(u, 0)).number_format = "#,##0"
-        ws3.cell(row=row_num, column=10, value=aug_reel_counts.get(u, 0)).number_format = "#,##0"
+        ws3.cell(row=row_num, column=6, value=round(a_data.get("new_views", 0.0))).number_format = "#,##0"
+        ws3.cell(row=row_num, column=7, value=round(a_data.get("decay_delta", 0.0))).number_format = "#,##0"
+        ws3.cell(row=row_num, column=8, value=round(a_data.get("total_views", 0.0))).number_format = "#,##0"
+        ws3.cell(row=row_num, column=9, value=a_data.get("post_count", 0)).number_format = "#,##0"
+        ws3.cell(row=row_num, column=10, value=a_data.get("reel_count", 0)).number_format = "#,##0"
 
         for c_idx in range(1, 11):
             cell = ws3.cell(row=row_num, column=c_idx)
@@ -710,17 +729,19 @@ def main():
     for idx, p in enumerate(sorted_profiles, 1):
         row_num = idx + 1
         u = p["clean_username"]
+        s_data = sep_res.get(u, {})
+
         ws4.cell(row=row_num, column=1, value=idx).alignment = align_center
         ws4.cell(row=row_num, column=2, value=f"@{p['username']}")
         ws4.cell(row=row_num, column=3, value=p["category"])
-        ws4.cell(row=row_num, column=4, value=sep_calc_type.get(u, "-"))
-        ws4.cell(row=row_num, column=5, value=str(sep_divisors.get(u, "-"))).alignment = align_center
+        ws4.cell(row=row_num, column=4, value=s_data.get("calc_type", "-"))
+        ws4.cell(row=row_num, column=5, value=str(s_data.get("divisor", "-"))).alignment = align_center
 
-        ws4.cell(row=row_num, column=6, value=round(sep_new_views.get(u, 0.0))).number_format = "#,##0"
-        ws4.cell(row=row_num, column=7, value=round(sep_decay_deltas.get(u, 0.0))).number_format = "#,##0"
-        ws4.cell(row=row_num, column=8, value=round(sep_final_totals.get(u, 0.0))).number_format = "#,##0"
-        ws4.cell(row=row_num, column=9, value=sep_post_counts.get(u, 0)).number_format = "#,##0"
-        ws4.cell(row=row_num, column=10, value=sep_reel_counts.get(u, 0)).number_format = "#,##0"
+        ws4.cell(row=row_num, column=6, value=round(s_data.get("new_views", 0.0))).number_format = "#,##0"
+        ws4.cell(row=row_num, column=7, value=round(s_data.get("decay_delta", 0.0))).number_format = "#,##0"
+        ws4.cell(row=row_num, column=8, value=round(s_data.get("total_views", 0.0))).number_format = "#,##0"
+        ws4.cell(row=row_num, column=9, value=s_data.get("post_count", 0)).number_format = "#,##0"
+        ws4.cell(row=row_num, column=10, value=s_data.get("reel_count", 0)).number_format = "#,##0"
 
         for c_idx in range(1, 11):
             cell = ws4.cell(row=row_num, column=c_idx)

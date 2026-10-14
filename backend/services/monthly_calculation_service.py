@@ -174,6 +174,9 @@ async def calculate_monthly_metrics(
         for ca in coauthors:
             s1_active_users.add(ca)
 
+    s1_prior_window_totals: dict[str, float] = {u: 0.0 for u in target_usernames}
+    s1_active_months: dict[str, set[str]] = {u: set() for u in target_usernames}
+
     # 1. Calculate prior 6 months decay/growth delta (S2 - S1)
     for prior_m in prior_months:
         s1_views, _, _, _ = await _get_views_and_posts_for_snapshot_month(
@@ -192,9 +195,14 @@ async def calculate_monthly_metrics(
         )
 
         for uname in target_usernames:
+            s1_prior_window_totals[uname] += s1_views[uname]
+            if s1_views[uname] > 0:
+                s1_active_months[uname].add(prior_m)
+
             s2_window_totals[uname] += s2_views[uname]
             if s2_views[uname] > 0 or s2_posts.get(uname, 0) > 0:
                 channel_active_months[uname].add(prior_m)
+
             if uname in s1_active_users:
                 month_delta = max(0.0, s2_views[uname] - s1_views[uname])
                 channel_totals[uname] += month_delta
@@ -218,9 +226,14 @@ async def calculate_monthly_metrics(
             channel_active_months[uname].add(target_year_month)
 
         if uname in s1_active_users:
-            channel_totals[uname] += target_s2_views[uname]
+            # Check Case 2: Total Channel Crawl Dropout (S1 > 0, but S2 completely failed = 0 posts/views)
+            if not channel_active_months[uname] and s1_prior_window_totals[uname] > 0:
+                s1_div = max(1, len(s1_active_months[uname]))
+                channel_totals[uname] = s1_prior_window_totals[uname] / s1_div
+            else:
+                channel_totals[uname] += target_s2_views[uname]
         else:
-            # Channel was NOT scraped in Snapshot 1 (newly scraped in Snapshot 2).
+            # Case 6: Newly Scraped Channel (not in Snapshot 1).
             # Avoid attributing multiple months of lifetime cumulative views to this single month.
             # Dynamically determine the number of months based on available scraped data from start date:
             if channel_active_months[uname]:
