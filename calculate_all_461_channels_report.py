@@ -1009,11 +1009,20 @@ def main():
     for scope, cat, elig, meth, miss in methodology_rows:
         ws1.cell(row=r, column=1, value=scope).font = dark_bold
         ws1.cell(row=r, column=2, value=cat).font = dark_bold
-        ws1.cell(row=r, column=3, value=elig).font = dark_regular
-        ws1.cell(row=r, column=4, value=meth).font = dark_regular
-        ws1.cell(row=r, column=5, value=miss).font = dark_regular
+        
+        ws1.merge_cells(start_row=r, start_column=3, end_row=r, end_column=4)
+        c3 = ws1.cell(row=r, column=3, value=elig)
+        c3.font = dark_regular
+        
+        ws1.merge_cells(start_row=r, start_column=5, end_row=r, end_column=6)
+        c5 = ws1.cell(row=r, column=5, value=meth)
+        c5.font = dark_regular
+        
+        ws1.merge_cells(start_row=r, start_column=7, end_row=r, end_column=9)
+        c7 = ws1.cell(row=r, column=7, value=miss)
+        c7.font = dark_regular
 
-        for c_idx in range(1, 6):
+        for c_idx in range(1, 10):
             cell = ws1.cell(row=r, column=c_idx)
             cell.border = thin_border
             cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -1022,6 +1031,148 @@ def main():
             else:
                 cell.fill = light_amber_fill
         ws1.row_dimensions[r].height = 54
+        r += 1
+
+    # Table 6: DETAILED CALCULATION ASSUMPTIONS & ARCHITECTURAL SPECIFICATIONS (END OF PAGE)
+    r += 2
+    ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+    ws1.cell(row=r, column=1, value="DETAILED BUSINESS LOGIC & CALCULATION ASSUMPTIONS (MASTER AUDIT REFERENCE)").font = white_bold
+    ws1.cell(row=r, column=1).fill = header_fill
+    ws1.cell(row=r, column=1).alignment = align_left
+    ws1.row_dimensions[r].height = 24
+    r += 1
+
+    ws1.cell(row=r, column=1, value="Assumption Area / Domain").font = white_bold
+    ws1.cell(row=r, column=1).fill = navy_fill
+    ws1.cell(row=r, column=1).alignment = align_center
+
+    ws1.cell(row=r, column=2, value="Entity Scope").font = white_bold
+    ws1.cell(row=r, column=2).fill = navy_fill
+    ws1.cell(row=r, column=2).alignment = align_center
+
+    ws1.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+    ws1.cell(row=r, column=3, value="Core Business Assumption (Plain English Context)").font = white_bold
+    ws1.cell(row=r, column=3).fill = navy_fill
+    ws1.cell(row=r, column=3).alignment = align_center
+
+    ws1.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
+    ws1.cell(row=r, column=6, value="Mathematical Formulation & Technical Enforcement Rule").font = white_bold
+    ws1.cell(row=r, column=6).fill = navy_fill
+    ws1.cell(row=r, column=6).alignment = align_center
+
+    for c_idx in range(1, 10):
+        ws1.cell(row=r, column=c_idx).border = thin_border
+        ws1.cell(row=r, column=c_idx).fill = navy_fill
+    ws1.row_dimensions[r].height = 24
+    r += 1
+
+    detailed_assumptions = [
+        (
+            "1. Calendar Time Horizon", 
+            "All Channels", 
+            "Target month metrics account strictly for reels published within that specific calendar month (August: Aug 1-31; September: Sept 1-30).", 
+            "Identified by post publication timestamp. New reels get 100% of their views at S2 (Views_M = S2 Views / N)."
+        ),
+        (
+            "2. Snapshot Baseline Delta", 
+            "All Channels", 
+            "Monthly growth is captured by comparing two point-in-time scrape runs: S1 (start of month) and S2 (end of month).", 
+            "August Delta = Run 111 vs Run 97; September Delta = Run 112 vs Run 111. Surviving reels delta = max(0, S2 - S1) / N."
+        ),
+        (
+            "3. Co-Author & Collab Splitting", 
+            "All Channels", 
+            "Every collaborative reel divides views equally among all co-authors. No creator is credited with another creator's share.", 
+            "Divided Views = Play Count / max(1, len(participants)). Monitored channels get their split in Tabs 2-4; outside collaborators get their split in Tabs 5-6. Sum of shares <= 100%."
+        ),
+        (
+            "4. 6-Month Prior Decay Window", 
+            "All Channels", 
+            "Decay growth is tracked only for content published up to 6 months prior to target month (Feb-Jul for August; Mar-Aug for September).", 
+            "Content older than 6 months prior is frozen; its cumulative historical views are strictly excluded from monthly delta calculations."
+        ),
+        (
+            "5. Dedicated Content Crediting", 
+            "Dedicated (268)", 
+            "Channels created solely for Sadhguru/Isha content are 100% dedicated to the spiritual mission by definition.", 
+            "100% of uploads, collaborative reels, and decay deltas are credited unconditionally without keyword, hashtag, or mention checks."
+        ),
+        (
+            "6. In-House Influencer Filtering", 
+            "IHI (193)", 
+            "Personal creator channels post mixed content (daily life, workouts, food, and Sadhguru/yoga). Only genuine spiritual content is counted.", 
+            "Reels must match verified spiritual taxonomy (hashtags, mentions, tags, or captions). Personal lifestyle vlogs and commercial brand sponsorships (e.g. Clarks, Dove) receive 0.0 views."
+        ),
+        (
+            "7. Scraper Pagination Drop (Case 1)", 
+            "Surviving Channels", 
+            "Older reels dropped in S2 due to scraper pagination limits (S1 > 0, S2 = 0) still gained normal organic views on Instagram.", 
+            "Imputed organic growth: delta = S1 * g, where g is channel growth on surviving reels. Clamped at 0.0 if g <= 0. Prevents false zeroing out due to pagination limits."
+        ),
+        (
+            "8. Total Crawl Dropout (Case 2)", 
+            "Monitored Channels", 
+            "When Instagram blocks the scraper on an entire account (getting 0 posts in S2), the creator is not penalized with 0 views.", 
+            "Channel is normalized using its S1 active history average: Credited Views = (Total S1 Prior Views) / (Active Months in S1). Prevents tech crawl failures from penalizing creators."
+        ),
+        (
+            "9. Creator Deletions (Case 3)", 
+            "All Channels", 
+            "If surrounding reels survive in S2 but a specific middle reel is missing, it was deleted or archived by the creator.", 
+            "Delta is strictly clamped to 0.0. Creators are never credited with decay growth on content they have permanently removed or archived from Instagram."
+        ),
+        (
+            "10. Zero Negative Views (Case 4)", 
+            "All Channels", 
+            "If views stayed flat or Instagram audited bot views (S2 <= S1), views cannot decrease below zero.", 
+            "Delta is clamped at 0.0. Negative views are never deducted from a creator, and artificial growth is never invented. Organic growth is non-negative."
+        ),
+        (
+            "11. Viral Spike Isolation (Case 5)", 
+            "All Channels", 
+            "An algorithmic viral explosion on one video must not artificially inflate the estimated views of missing/dropped videos.", 
+            "The viral post receives 100% full, uncapped views (S2 - S1). Dropped posts inherit only the median reel growth rate, capped at a maximum of 10.0%."
+        ),
+        (
+            "12. Newly Scraped Channels (Case 6)", 
+            "Monitored Channels", 
+            "When a channel is scraped for the first time in S2 (S1 = 0), treating cumulative views as a 1-month delta would falsely inflate views.", 
+            "Dynamic Active Months Divisor: Credited Views = (Total Window Views in S2) / (Active Months Span, capped at 7). Normalizes first-time channels cleanly."
+        ),
+        (
+            "13. Standalone Unmonitored Tabs", 
+            "Unmonitored Collabs", 
+            "External collaborators are outside creators and must never be merged into the official team performance portfolio.", 
+            "Tracked separately in Tabs 5 & 6. Pure measured delta only; unmonitored channels without S1 baselines have decay clamped to 0.0. Zero fake views."
+        ),
+        (
+            "14. Format A Reel-to-View Match", 
+            "All Channels", 
+            "Every view figure in the report corresponds to a clearly defined count of reels to guarantee complete transparency.", 
+            "'New Uploads' matches views from new posts created in that calendar month. 'Total Active Reels' matches every reel contributing views (New Uploads + Surviving Decay Reels)."
+        )
+    ]
+
+    for a_area, a_scope, a_assump, a_rule in detailed_assumptions:
+        ws1.cell(row=r, column=1, value=a_area).font = dark_bold
+        ws1.cell(row=r, column=2, value=a_scope).font = dark_regular
+        
+        ws1.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+        c3 = ws1.cell(row=r, column=3, value=a_assump)
+        c3.font = dark_regular
+        
+        ws1.merge_cells(start_row=r, start_column=6, end_row=r, end_column=9)
+        c6 = ws1.cell(row=r, column=6, value=a_rule)
+        c6.font = dark_regular
+
+        row_fill = alt_fill if (r % 2 == 0) else PatternFill(fill_type=None)
+        for c_idx in range(1, 10):
+            cell = ws1.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            if row_fill.fill_type:
+                cell.fill = row_fill
+        ws1.row_dimensions[r].height = 36
         r += 1
 
     # -------------------------------------------------------------
@@ -1366,12 +1517,22 @@ def main():
     workspace_path = f"/Users/sadhguruwisdomwarrior/.gemini/antigravity/scratch/WisdomWarriors/{output_filename}"
     artifact_path = f"/Users/sadhguruwisdomwarrior/.gemini/antigravity/brain/da87c5c7-cae1-4727-8648-8c431ee707c7/{output_filename}"
     downloads_path = f"/Users/sadhguruwisdomwarrior/Downloads/{output_filename}"
+    downloads_total = "/Users/sadhguruwisdomwarrior/Downloads/Total_Report.xlsx"
+    downloads_total_space = "/Users/sadhguruwisdomwarrior/Downloads/Total Report.xlsx"
+    workspace_total = "/Users/sadhguruwisdomwarrior/.gemini/antigravity/scratch/WisdomWarriors/Total_Report.xlsx"
+    artifact_total = "/Users/sadhguruwisdomwarrior/.gemini/antigravity/brain/da87c5c7-cae1-4727-8648-8c431ee707c7/Total_Report.xlsx"
 
     wb.save(workspace_path)
     wb.save(artifact_path)
+    wb.save(workspace_total)
+    wb.save(artifact_total)
     try:
         wb.save(downloads_path)
+        wb.save(downloads_total)
+        wb.save(downloads_total_space)
         print(f"Saved to Downloads: {downloads_path}")
+        print(f"Saved to Downloads: {downloads_total}")
+        print(f"Saved to Downloads: {downloads_total_space}")
     except Exception as e:
         print(f"Note: Could not save to Downloads: {e}")
 
@@ -1379,6 +1540,7 @@ def main():
     print(f"1. {workspace_path}")
     print(f"2. {artifact_path}")
     print(f"3. {downloads_path}")
+    print(f"4. {downloads_total}")
     print("\nCalculation completed with 100% adherence to gemini.md!")
 
 if __name__ == "__main__":
