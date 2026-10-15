@@ -752,33 +752,163 @@ def main():
         ws1.row_dimensions[r].height = 20
         r += 1
 
-    # Note banner
-    ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-    note_cell = ws1.cell(row=r, column=1, value="* Strict Rule: Unmonitored views are tracked separately in Tabs 5 & 6 and are NEVER merged into the official 461 Monitored Portfolio above.")
-    note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="64748B")
-    note_cell.alignment = align_left
-    ws1.row_dimensions[r].height = 18
+    # Total Unmonitored row
+    tot_unmon_aug_v = tot_aug_ded_v + tot_aug_ihi_v
+    tot_unmon_sep_v = tot_sep_ded_v + tot_sep_ihi_v
+    tot_unmon_reels = tot_ded_reels + tot_ihi_reels
+    tot_unmon_accounts = len(unmon_ded) + len(unmon_ihi)
+    tot_unmon_gw = ((tot_unmon_sep_v - tot_unmon_aug_v) / tot_unmon_aug_v * 100) if tot_unmon_aug_v > 0 else 0.0
 
-    # Table 4: CONDITIONS & METHODOLOGY ARCHITECTURE REFERENCE
-    r += 2
-    ws1.cell(row=r, column=1, value="MASTER CONDITIONS & METHODOLOGY ARCHITECTURE REFERENCE").font = dark_bold
+    ws1.cell(row=r, column=1, value="TOTAL UNMONITORED COLLABORATOR VIEWS (TABS 5 & 6)").font = dark_bold
+    ws1.cell(row=r, column=2, value=tot_unmon_accounts).font = dark_bold
+    ws1.cell(row=r, column=3, value=round(tot_unmon_aug_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=4, value=tot_unmon_reels).number_format = "#,##0"
+    ws1.cell(row=r, column=5, value=round(tot_unmon_sep_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=6, value=tot_unmon_reels).number_format = "#,##0"
+    ug_cell = ws1.cell(row=r, column=7, value=tot_unmon_gw / 100)
+    ug_cell.number_format = "+0.0%;-0.0%;0.0%"
+    ug_cell.font = green_bold if tot_unmon_gw >= 0 else red_bold
+
+    for col_idx in range(1, 8):
+        ws1.cell(row=r, column=col_idx).fill = highlight_fill
+        ws1.cell(row=r, column=col_idx).border = thick_bottom
+        if col_idx in (2, 4, 6):
+            ws1.cell(row=r, column=col_idx).alignment = align_center
+        elif col_idx in (3, 5, 7):
+            ws1.cell(row=r, column=col_idx).alignment = align_right
+    ws1.row_dimensions[r].height = 22
     r += 1
 
-    cond_headers = ["Scope", "Classification", "Eligible Content & Qualification", "Monthly Delta View Calculation Methodology", "Missing / Dropped Reels Handling"]
-    for c_idx, th in enumerate(cond_headers, 1):
+    # Table 4: GRAND TOTAL PORTFOLIO & ECOSYSTEM REACH
+    r += 2
+    ws1.cell(row=r, column=1, value="GRAND TOTAL: MONITORED + UNMONITORED ECOSYSTEM REACH (ZERO DUPLICATION)").font = dark_bold
+    r += 1
+
+    grand_headers = [
+        "Ecosystem Reach Scope", "Channel / Account Count", "August 2026 Delta Views", "August Posts/Reels",
+        "September 2026 Delta Views", "September Posts/Reels", "MoM Growth %"
+    ]
+    for c_idx, th in enumerate(grand_headers, 1):
         cell = ws1.cell(row=r, column=c_idx, value=th)
         cell.font = white_bold
         cell.fill = header_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws1.row_dimensions[r].height = 22
+    r += 1
+
+    grand_aug_v = tot_aug_v + tot_unmon_aug_v
+    grand_aug_p = tot_aug_p + tot_unmon_reels
+    grand_sep_v = tot_sep_v + tot_unmon_sep_v
+    grand_sep_p = tot_sep_p + tot_unmon_reels
+    grand_gw = ((grand_sep_v - grand_aug_v) / grand_aug_v * 100) if grand_aug_v > 0 else 0.0
+
+    grand_rows = [
+        ("1. Official Monitored Channels Portfolio (Tabs 2, 3, 4)", len(profile_list), tot_aug_v, tot_aug_p, tot_sep_v, tot_sep_p, tot_growth),
+        ("2. External Unmonitored Collaborators Ecosystem (Tabs 5, 6)", tot_unmon_accounts, tot_unmon_aug_v, tot_unmon_reels, tot_unmon_sep_v, tot_unmon_reels, tot_unmon_gw),
+    ]
+
+    for label, count, av, ap, sv, sp, gw in grand_rows:
+        ws1.cell(row=r, column=1, value=label).font = dark_bold
+        ws1.cell(row=r, column=2, value=count).alignment = align_center
+        ws1.cell(row=r, column=3, value=round(av)).number_format = "#,##0"
+        ws1.cell(row=r, column=4, value=ap).number_format = "#,##0"
+        ws1.cell(row=r, column=5, value=round(sv)).number_format = "#,##0"
+        ws1.cell(row=r, column=6, value=sp).number_format = "#,##0"
+        gc = ws1.cell(row=r, column=7, value=gw / 100)
+        gc.number_format = "+0.0%;-0.0%;0.0%"
+        gc.font = green_bold if gw >= 0 else red_bold
+
+        for c_idx in range(1, 8):
+            cell = ws1.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            if c_idx not in (1, 7):
+                cell.font = dark_regular
+            if c_idx in (3, 5):
+                cell.alignment = align_right
+            if c_idx in (2, 4, 6):
+                cell.alignment = align_center
+        ws1.row_dimensions[r].height = 20
+        r += 1
+
+    # Grand Total combined row
+    ws1.cell(row=r, column=1, value="COMBINED ECOSYSTEM GRAND TOTAL (Zero View Overlap)").font = dark_bold
+    ws1.cell(row=r, column=2, value=len(profile_list) + tot_unmon_accounts).font = dark_bold
+    ws1.cell(row=r, column=3, value=round(grand_aug_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=4, value=grand_aug_p).number_format = "#,##0"
+    ws1.cell(row=r, column=5, value=round(grand_sep_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=6, value=grand_sep_p).number_format = "#,##0"
+    gg_cell = ws1.cell(row=r, column=7, value=grand_gw / 100)
+    gg_cell.number_format = "+0.0%;-0.0%;0.0%"
+    gg_cell.font = green_bold if grand_gw >= 0 else red_bold
+
+    for col_idx in range(1, 8):
+        ws1.cell(row=r, column=col_idx).fill = highlight_fill
+        ws1.cell(row=r, column=col_idx).border = double_bottom
+        if col_idx in (2, 4, 6):
+            ws1.cell(row=r, column=col_idx).alignment = align_center
+        elif col_idx in (3, 5, 7):
+            ws1.cell(row=r, column=col_idx).alignment = align_right
+    ws1.row_dimensions[r].height = 24
+    r += 1
+
+    # Note banner
+    ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+    note_cell = ws1.cell(row=r, column=1, value="* ZERO REPEATED VIEWS PROOF: Every reel is split strictly among its co-authors (Views / N). Monitored creators receive their exact fraction in Tabs 2-4, and outside collaborators receive their fraction in Tabs 5-6. The fractions sum to exactly 100% of the reel's play count. No view is ever double-counted or credited twice.")
+    note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="047857")
+    note_cell.alignment = align_left
+    ws1.row_dimensions[r].height = 20
+
+    # Table 5: MASTER CONDITIONS & METHODOLOGY ARCHITECTURE REFERENCE (LAYMAN'S GUIDE)
+    r += 2
+    ws1.cell(row=r, column=1, value="MASTER CONDITIONS & METHODOLOGY ARCHITECTURE REFERENCE (EXPLAINED IN PLAIN LANGUAGE)").font = dark_bold
+    r += 1
+
+    cond_headers = [
+        "Scope", 
+        "Category / Group", 
+        "Simple Real-Life Meaning (Plain English)", 
+        "How Views are Counted (Delta Formula)", 
+        "Why Zero Repeated Views & How Missing Data is Protected"
+    ]
+    for c_idx, th in enumerate(cond_headers, 1):
+        cell = ws1.cell(row=r, column=c_idx, value=th)
+        cell.font = white_bold
+        cell.fill = navy_fill
         cell.alignment = align_center
         cell.border = thin_border
     ws1.row_dimensions[r].height = 24
     r += 1
 
     methodology_rows = [
-        ("Monitored Channels (461)", "Dedicated (268)", "100% of all uploads and collaborative reels credited unconditionally (no keyword/filter checks).", "Target Month New Uploads (S2) + 6-Month Prior Decay Window (S2 - S1 delta). Co-author split: vpc / split_factor.", "Case 1: Imputed decay growth (S1 * g). Case 2: S1 history normalized average. Case 4: Clamped at 0. Case 5: Viral spike uncapped."),
-        ("Monitored Channels (461)", "In-House Influencer (193)", "Only reels containing verified allowed hashtags, mentions, tags, or caption keywords. Personal/commercial ads excluded.", "Target Month New Uploads (S2) + 6-Month Prior Decay Window (S2 - S1 delta) for qualifying reels. Co-author split: vpc / split_factor.", "Case 1: Imputed decay growth. Case 2: S1 history normalized average. Case 4: Clamped at 0. Case 5: Viral spike uncapped."),
-        ("Unmonitored Channels (Separate Tab 5)", "Dedicated Collabs", "All collaborative reels co-authored with any monitored Dedicated channel (owner or invited collaborator).", "Zero Fake Views: Target Month New Uploads (S2/split) + Measured organic difference on surviving prior reels (max(0, S2 - S1)/split).", "Strict Clamping: If missing in S2 or no S1 baseline, delta = 0.0. No artificial views or estimates imputed."),
-        ("Unmonitored Channels (Separate Tab 6)", "IHI Collabs (Filtered)", "Only collaborative reels co-authored with IHI channels that pass verified spiritual taxonomy. Commercial ads strictly excluded.", "Zero Fake Views: Target Month New Uploads (S2/split) + Measured organic difference on surviving prior reels (max(0, S2 - S1)/split).", "Strict Clamping: Non-spiritual brand ads = 0.0 views. Missing in S2 or no S1 baseline = 0.0 delta. Zero fake views.")
+        (
+            "Monitored Channels (461 Accounts)", 
+            "Dedicated Channels (268)", 
+            "100% Spiritual channels (e.g., @with_shiva, @ishafoundation). Every post is consecrated/Sadhguru content. No hashtag or keyword filter needed—every video is counted.", 
+            "New Uploads published in target month get 100% of their views. Older videos from the prior 6 months only count the NEW views they gained this month (End of Month Views minus Start of Month Views).", 
+            "No Double Counting: If 2 creators co-author a reel, each gets exactly 50% of the views (Views / 2). If the scraper misses an older video, we estimate only its fair organic growth (1-2%), never inflating numbers."
+        ),
+        (
+            "Monitored Channels (461 Accounts)", 
+            "In-House Influencers (193)", 
+            "Personal lifestyle/yoga creators (e.g., @withshambhavi). They post personal life, travel, and Sadhguru/yoga. We ONLY count videos with verified spiritual hashtags, mentions, or captions. Personal life and commercial ads get 0 views.", 
+            "Same Delta Rule: Target month new spiritual videos + organic new views gained on older spiritual videos. Non-spiritual videos are completely ignored and receive 0 views.", 
+            "No Double Counting: Split equally if co-authored. If an influencer does a commercial brand partnership (e.g. shoes, clothing, electronics), it fails the spiritual filter and gets 0 views."
+        ),
+        (
+            "Unmonitored Collaborators (Separate Tab 5)", 
+            "Dedicated Collabs (1,066 External Accounts)", 
+            "Outside creators who co-authored a video with our Dedicated channels. They are not in our 461 list, but their reach helps spread the message.", 
+            "Zero Fake Views: They only receive their exact collaborator share (Views / N) for videos published in the month, plus measured growth on surviving older videos.", 
+            "Strict Zero View Leakage: Tracked in its own standalone tab. If an external channel has no baseline, its delta is clamped at 0.0 so old historical views are never falsely dumped into the month."
+        ),
+        (
+            "Unmonitored Collaborators (Separate Tab 6)", 
+            "IHI Collabs (468 External Accounts)", 
+            "Outside creators who co-authored a video with our In-House Influencers. Example: an outside yoga trainer doing a workshop with our teacher.", 
+            "Double-Filtered: Must be co-authored with our IHI creator AND must pass the spiritual keyword/hashtag taxonomy. Commercial brand collabs are 100% blocked.", 
+            "Pure Organic Delta: Only real new views are credited. Commercial ad partners receive 0 views. Never merged into the 461 monitored portfolio."
+        )
     ]
 
     for scope, cat, elig, meth, miss in methodology_rows:
@@ -796,7 +926,7 @@ def main():
                 cell.fill = light_blue_fill
             else:
                 cell.fill = light_amber_fill
-        ws1.row_dimensions[r].height = 42
+        ws1.row_dimensions[r].height = 54
         r += 1
 
     # -------------------------------------------------------------
