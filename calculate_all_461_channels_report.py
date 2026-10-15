@@ -242,13 +242,16 @@ def main():
                 tot_window_views = sum(p["divided_views"] for p in s2_window_posts.values())
                 monthly_total = tot_window_views / divisor
                 target_new_views = sum(p["divided_views"] for p in s2_target.values())
-
+                active_reels = {sc for sc, p in s2_window_posts.items() if p["divided_views"] > 0}
                 results[uname] = {
                     "total_views": monthly_total,
                     "new_views": target_new_views,
                     "decay_delta": max(0.0, monthly_total - target_new_views),
                     "post_count": len(s2_target),
                     "reel_count": sum(1 for p in s2_target.values() if p["is_reel"]),
+                    "active_reel_count": len(active_reels),
+                    "active_reels": active_reels,
+                    "new_reels": set(s2_target.keys()),
                     "calc_type": f"Case 6: Newly Scraped ({divisor} mo avg)",
                     "divisor": divisor
                 }
@@ -260,12 +263,16 @@ def main():
                 divisor = max(1, len(active_s1_months))
                 tot_s1_prior_views = sum(p["divided_views"] for p in s1_prior.values())
                 monthly_total = tot_s1_prior_views / divisor
+                active_reels = {sc for sc, p in s1_prior.items() if p["divided_views"] > 0}
                 results[uname] = {
                     "total_views": monthly_total,
                     "new_views": 0.0,
                     "decay_delta": monthly_total,
                     "post_count": 0,
                     "reel_count": 0,
+                    "active_reel_count": len(active_reels),
+                    "active_reels": active_reels,
+                    "new_reels": set(),
                     "calc_type": f"Case 2: Total Crawl Dropout ({divisor} mo S1 avg)",
                     "divisor": divisor
                 }
@@ -278,6 +285,9 @@ def main():
                     "decay_delta": 0.0,
                     "post_count": 0,
                     "reel_count": 0,
+                    "active_reel_count": 0,
+                    "active_reels": set(),
+                    "new_reels": set(),
                     "calc_type": "No Data",
                     "divisor": "-"
                 }
@@ -336,12 +346,22 @@ def main():
             total_decay = surv_delta + dropped_delta + new_prior_delta
             total_views = new_views + total_decay
 
+            target_reels = set(s2_target.keys())
+            active_decay_reels = {sc for sc in surviving_scs if (s2_prior[sc]["divided_views"] - s1_prior[sc]["divided_views"]) > 0}
+            if dropped_delta > 0:
+                active_decay_reels.update(dropped_scs)
+            active_decay_reels.update({sc for sc in new_prior_scs if s2_prior[sc]["divided_views"] > 0})
+            total_active_reels = target_reels | active_decay_reels
+
             results[uname] = {
                 "total_views": total_views,
                 "new_views": new_views,
                 "decay_delta": total_decay,
                 "post_count": post_count,
                 "reel_count": reel_count,
+                "active_reel_count": len(total_active_reels),
+                "active_reels": total_active_reels,
+                "new_reels": target_reels,
                 "calc_type": calc_case,
                 "divisor": "-"
             }
@@ -424,11 +444,15 @@ def main():
 
     unmon_ded = defaultdict(lambda: {
         "aug_new": 0.0, "aug_decay": 0.0, "sep_new": 0.0, "sep_decay": 0.0,
-        "linked": set(), "is_owner_count": 0, "total_reels": 0
+        "linked": set(), "is_owner_count": 0, "total_reels": set(),
+        "aug_new_reels": set(), "aug_decay_reels": set(),
+        "sep_new_reels": set(), "sep_decay_reels": set()
     })
     unmon_ihi = defaultdict(lambda: {
         "aug_new": 0.0, "aug_decay": 0.0, "sep_new": 0.0, "sep_decay": 0.0,
-        "linked": set(), "is_owner_count": 0, "total_reels": 0
+        "linked": set(), "is_owner_count": 0, "total_reels": set(),
+        "aug_new_reels": set(), "aug_decay_reels": set(),
+        "sep_new_reels": set(), "sep_decay_reels": set()
     })
 
     for sc in all_collab_scs:
@@ -498,7 +522,15 @@ def main():
                 unmon_ded[ext]["aug_decay"] += aug_decay_share
                 unmon_ded[ext]["sep_new"] += sep_new_share
                 unmon_ded[ext]["sep_decay"] += sep_decay_share
-                unmon_ded[ext]["total_reels"] += 1
+                unmon_ded[ext]["total_reels"].add(sc)
+                if aug_new_share > 0:
+                    unmon_ded[ext]["aug_new_reels"].add(sc)
+                if aug_decay_share > 0:
+                    unmon_ded[ext]["aug_decay_reels"].add(sc)
+                if sep_new_share > 0:
+                    unmon_ded[ext]["sep_new_reels"].add(sc)
+                if sep_decay_share > 0:
+                    unmon_ded[ext]["sep_decay_reels"].add(sc)
                 if ext == owner:
                     unmon_ded[ext]["is_owner_count"] += 1
                 for m in mon_parts:
@@ -513,7 +545,15 @@ def main():
                     unmon_ihi[ext]["aug_decay"] += aug_decay_share
                     unmon_ihi[ext]["sep_new"] += sep_new_share
                     unmon_ihi[ext]["sep_decay"] += sep_decay_share
-                    unmon_ihi[ext]["total_reels"] += 1
+                    unmon_ihi[ext]["total_reels"].add(sc)
+                    if aug_new_share > 0:
+                        unmon_ihi[ext]["aug_new_reels"].add(sc)
+                    if aug_decay_share > 0:
+                        unmon_ihi[ext]["aug_decay_reels"].add(sc)
+                    if sep_new_share > 0:
+                        unmon_ihi[ext]["sep_new_reels"].add(sc)
+                    if sep_decay_share > 0:
+                        unmon_ihi[ext]["sep_decay_reels"].add(sc)
                     if ext == owner:
                         unmon_ihi[ext]["is_owner_count"] += 1
                     for m in mon_parts:
@@ -556,33 +596,43 @@ def main():
     align_right = Alignment(horizontal="right", vertical="center")
 
     cat_summary = {
-        "Dedicated": {"aug_views": 0.0, "aug_posts": 0, "sep_views": 0.0, "sep_posts": 0, "count": 0},
-        "In-house influencer": {"aug_views": 0.0, "aug_posts": 0, "sep_views": 0.0, "sep_posts": 0, "count": 0}
+        "Dedicated": {
+            "aug_views": 0.0, "aug_new_posts": 0, "aug_active_reels": set(),
+            "sep_views": 0.0, "sep_new_posts": 0, "sep_active_reels": set(), "count": 0
+        },
+        "In-house influencer": {
+            "aug_views": 0.0, "aug_new_posts": 0, "aug_active_reels": set(),
+            "sep_views": 0.0, "sep_new_posts": 0, "sep_active_reels": set(), "count": 0
+        }
     }
 
     for prof in profile_list:
         c = prof["category"]
         u = prof["clean_username"]
         cat_summary[c]["count"] += 1
-        cat_summary[c]["aug_views"] += aug_res.get(u, {}).get("total_views", 0.0)
-        cat_summary[c]["aug_posts"] += aug_res.get(u, {}).get("post_count", 0)
-        cat_summary[c]["sep_views"] += sep_res.get(u, {}).get("total_views", 0.0)
-        cat_summary[c]["sep_posts"] += sep_res.get(u, {}).get("post_count", 0)
+        a_data = aug_res.get(u, {})
+        s_data = sep_res.get(u, {})
+        cat_summary[c]["aug_views"] += a_data.get("total_views", 0.0)
+        cat_summary[c]["aug_new_posts"] += a_data.get("post_count", 0)
+        cat_summary[c]["aug_active_reels"].update(a_data.get("active_reels", set()))
+        cat_summary[c]["sep_views"] += s_data.get("total_views", 0.0)
+        cat_summary[c]["sep_new_posts"] += s_data.get("post_count", 0)
+        cat_summary[c]["sep_active_reels"].update(s_data.get("active_reels", set()))
 
     # -------------------------------------------------------------
-    # TAB 1: EXECUTIVE 80-20 SUMMARY
+    # TAB 1: EXECUTIVE 80-20 SUMMARY (FORMAT A: REEL-TO-VIEW MATCH)
     # -------------------------------------------------------------
     ws1 = wb.create_sheet(title="Executive 80-20 Summary")
     ws1.views.sheetView[0].showGridLines = True
 
-    ws1.merge_cells("A1:G1")
-    ws1["A1"] = "Wisdom Warriors Instagram Analytics — August vs. September 2026 Executive Summary"
+    ws1.merge_cells("A1:I1")
+    ws1["A1"] = "Wisdom Warriors Instagram Analytics — August vs. September 2026 Executive Summary (Format A)"
     ws1["A1"].font = white_title
     ws1["A1"].fill = header_fill
     ws1["A1"].alignment = align_left
 
-    ws1.merge_cells("A2:G2")
-    ws1["A2"] = "Strict compliance with gemini.md 6-Case Master Specification | Run 97 -> Run 111 -> Run 112"
+    ws1.merge_cells("A2:I2")
+    ws1["A2"] = "Strict Reel-to-View Match: New Uploads & Total Active Reels mapped to Delta Views | gemini.md 6-Case Specification"
     ws1["A2"].font = white_subtitle
     ws1["A2"].fill = header_fill
     ws1["A2"].alignment = align_left
@@ -590,10 +640,10 @@ def main():
     ws1.row_dimensions[1].height = 28
     ws1.row_dimensions[2].height = 18
 
-    # Table 1: Monitored Channels Portfolio Summary (100% UNCHANGED)
+    # Table 1: Monitored Channels Portfolio Summary (Format A)
     headers_t1 = [
-        "Category Architecture", "Total Channels", "August 2026 Delta Views", "August New Posts",
-        "September 2026 Delta Views", "September New Posts", "MoM Growth %"
+        "Category Architecture", "Total Channels", "August Delta Views", "August New Uploads", "August Total Active Reels",
+        "September Delta Views", "September New Uploads", "September Total Active Reels", "MoM Views Growth %"
     ]
     for col_idx, h in enumerate(headers_t1, 1):
         cell = ws1.cell(row=4, column=col_idx, value=h)
@@ -601,66 +651,80 @@ def main():
         cell.fill = purple_fill
         cell.alignment = align_center
         cell.border = thin_border
-    ws1.row_dimensions[4].height = 24
+    ws1.row_dimensions[4].height = 26
 
     r = 5
     for cat_name, label in [("Dedicated", "Wisdom Warriors (Dedicated Channels — 100% credited)"),
                             ("In-house influencer", "In-House Influencers (IHI — Filtered credited)")]:
         data = cat_summary[cat_name]
         aug_v = data["aug_views"]
+        aug_np = data["aug_new_posts"]
+        aug_ar = len(data["aug_active_reels"])
         sep_v = data["sep_views"]
+        sep_np = data["sep_new_posts"]
+        sep_ar = len(data["sep_active_reels"])
         growth = ((sep_v - aug_v) / aug_v * 100) if aug_v > 0 else 0.0
 
         ws1.cell(row=r, column=1, value=label).font = dark_bold
         ws1.cell(row=r, column=2, value=data["count"]).font = dark_regular
         ws1.cell(row=r, column=3, value=round(aug_v)).number_format = "#,##0"
-        ws1.cell(row=r, column=4, value=data["aug_posts"]).number_format = "#,##0"
-        ws1.cell(row=r, column=5, value=round(sep_v)).number_format = "#,##0"
-        ws1.cell(row=r, column=6, value=data["sep_posts"]).number_format = "#,##0"
+        ws1.cell(row=r, column=4, value=aug_np).number_format = "#,##0"
+        ws1.cell(row=r, column=5, value=aug_ar).number_format = "#,##0"
+        ws1.cell(row=r, column=6, value=round(sep_v)).number_format = "#,##0"
+        ws1.cell(row=r, column=7, value=sep_np).number_format = "#,##0"
+        ws1.cell(row=r, column=8, value=sep_ar).number_format = "#,##0"
         
-        g_cell = ws1.cell(row=r, column=7, value=growth / 100)
+        g_cell = ws1.cell(row=r, column=9, value=growth / 100)
         g_cell.number_format = "+0.0%;-0.0%;0.0%"
         g_cell.font = green_bold if growth >= 0 else red_bold
 
-        for col_idx in range(1, 8):
+        for col_idx in range(1, 10):
             ws1.cell(row=r, column=col_idx).border = thin_border
-            if col_idx in (2, 4, 6):
+            if col_idx in (2, 4, 5, 7, 8):
                 ws1.cell(row=r, column=col_idx).alignment = align_center
-            elif col_idx in (3, 5, 7):
+            elif col_idx in (3, 6, 9):
                 ws1.cell(row=r, column=col_idx).alignment = align_right
         ws1.row_dimensions[r].height = 20
         r += 1
 
     tot_aug_v = cat_summary["Dedicated"]["aug_views"] + cat_summary["In-house influencer"]["aug_views"]
-    tot_aug_p = cat_summary["Dedicated"]["aug_posts"] + cat_summary["In-house influencer"]["aug_posts"]
+    tot_aug_np = cat_summary["Dedicated"]["aug_new_posts"] + cat_summary["In-house influencer"]["aug_new_posts"]
+    all_mon_aug_active = cat_summary["Dedicated"]["aug_active_reels"] | cat_summary["In-house influencer"]["aug_active_reels"]
+    tot_aug_ar = len(all_mon_aug_active)
+
     tot_sep_v = cat_summary["Dedicated"]["sep_views"] + cat_summary["In-house influencer"]["sep_views"]
-    tot_sep_p = cat_summary["Dedicated"]["sep_posts"] + cat_summary["In-house influencer"]["sep_posts"]
+    tot_sep_np = cat_summary["Dedicated"]["sep_new_posts"] + cat_summary["In-house influencer"]["sep_new_posts"]
+    all_mon_sep_active = cat_summary["Dedicated"]["sep_active_reels"] | cat_summary["In-house influencer"]["sep_active_reels"]
+    tot_sep_ar = len(all_mon_sep_active)
+
     tot_growth = ((tot_sep_v - tot_aug_v) / tot_aug_v * 100) if tot_aug_v > 0 else 0.0
 
-    ws1.cell(row=r, column=1, value="TOTAL ALL REGISTERED CHANNELS (461)").font = dark_bold
+    ws1.cell(row=r, column=1, value="TOTAL ALL REGISTERED MONITORED CHANNELS (461)").font = dark_bold
     ws1.cell(row=r, column=2, value=len(profile_list)).font = dark_bold
     ws1.cell(row=r, column=3, value=round(tot_aug_v)).number_format = "#,##0"
-    ws1.cell(row=r, column=4, value=tot_aug_p).number_format = "#,##0"
-    ws1.cell(row=r, column=5, value=round(tot_sep_v)).number_format = "#,##0"
-    ws1.cell(row=r, column=6, value=tot_sep_p).number_format = "#,##0"
-    tg_cell = ws1.cell(row=r, column=7, value=tot_growth / 100)
+    ws1.cell(row=r, column=4, value=tot_aug_np).number_format = "#,##0"
+    ws1.cell(row=r, column=5, value=tot_aug_ar).number_format = "#,##0"
+    ws1.cell(row=r, column=6, value=round(tot_sep_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=7, value=tot_sep_np).number_format = "#,##0"
+    ws1.cell(row=r, column=8, value=tot_sep_ar).number_format = "#,##0"
+    tg_cell = ws1.cell(row=r, column=9, value=tot_growth / 100)
     tg_cell.number_format = "+0.0%;-0.0%;0.0%"
     tg_cell.font = green_bold if tot_growth >= 0 else red_bold
 
-    for col_idx in range(1, 8):
+    for col_idx in range(1, 10):
         ws1.cell(row=r, column=col_idx).fill = highlight_fill
         ws1.cell(row=r, column=col_idx).border = thick_bottom
-        if col_idx in (2, 4, 6):
+        if col_idx in (2, 4, 5, 7, 8):
             ws1.cell(row=r, column=col_idx).alignment = align_center
-        elif col_idx in (3, 5, 7):
+        elif col_idx in (3, 6, 9):
             ws1.cell(row=r, column=col_idx).alignment = align_right
     ws1.row_dimensions[r].height = 22
 
-    # Top 10 Channels September (UNCHANGED)
+    # Top 10 Channels September (Format A)
     r += 2
     ws1.cell(row=r, column=1, value="TOP 10 MONITORED CHANNELS BY SEPTEMBER 2026 DELTA VIEWS").font = dark_bold
     r += 1
-    top10_headers = ["Rank", "Username", "Category", "Micro Unit", "August Views", "September Views", "MoM Growth %"]
+    top10_headers = ["Rank", "Username", "Category", "Micro Unit", "August Delta Views", "August Active Reels", "September Delta Views", "September Active Reels", "MoM Views Growth %"]
     for c_idx, th in enumerate(top10_headers, 1):
         cell = ws1.cell(row=r, column=c_idx, value=th)
         cell.font = white_bold
@@ -673,8 +737,12 @@ def main():
     sorted_by_sep = sorted(profile_list, key=lambda p: sep_res.get(p["clean_username"], {}).get("total_views", 0.0), reverse=True)
     for rank, p in enumerate(sorted_by_sep[:10], 1):
         u = p["clean_username"]
-        av = aug_res.get(u, {}).get("total_views", 0.0)
-        sv = sep_res.get(u, {}).get("total_views", 0.0)
+        a_d = aug_res.get(u, {})
+        s_d = sep_res.get(u, {})
+        av = a_d.get("total_views", 0.0)
+        aar = a_d.get("active_reel_count", 0)
+        sv = s_d.get("total_views", 0.0)
+        sar = s_d.get("active_reel_count", 0)
         gw = ((sv - av) / av * 100) if av > 0 else 0.0
 
         ws1.cell(row=r, column=1, value=rank).alignment = align_center
@@ -682,27 +750,31 @@ def main():
         ws1.cell(row=r, column=3, value=p["category"])
         ws1.cell(row=r, column=4, value=f"Unit {p['unit_number']}" if p["unit_number"] != "-" else "Unassigned")
         ws1.cell(row=r, column=5, value=round(av)).number_format = "#,##0"
-        ws1.cell(row=r, column=6, value=round(sv)).number_format = "#,##0"
-        g_c = ws1.cell(row=r, column=7, value=gw / 100)
+        ws1.cell(row=r, column=6, value=aar).number_format = "#,##0"
+        ws1.cell(row=r, column=7, value=round(sv)).number_format = "#,##0"
+        ws1.cell(row=r, column=8, value=sar).number_format = "#,##0"
+        g_c = ws1.cell(row=r, column=9, value=gw / 100)
         g_c.number_format = "+0.0%;-0.0%;0.0%"
         g_c.font = green_bold if gw >= 0 else red_bold
 
-        for c_idx in range(1, 8):
+        for c_idx in range(1, 10):
             ws1.cell(row=r, column=c_idx).border = thin_border
-            ws1.cell(row=r, column=c_idx).font = dark_regular if c_idx != 7 else (green_bold if gw >= 0 else red_bold)
-            if c_idx in (5, 6, 7):
+            ws1.cell(row=r, column=c_idx).font = dark_regular if c_idx != 9 else (green_bold if gw >= 0 else red_bold)
+            if c_idx in (5, 7, 9):
                 ws1.cell(row=r, column=c_idx).alignment = align_right
+            elif c_idx in (1, 3, 4, 6, 8):
+                ws1.cell(row=r, column=c_idx).alignment = align_center
         ws1.row_dimensions[r].height = 18
         r += 1
 
-    # Table 3: UNMONITORED COLLABORATIVE CHANNELS SUMMARY (SEPARATE STANDALONE AUDIT)
+    # Table 3: UNMONITORED COLLABORATIVE CHANNELS SUMMARY (FORMAT A)
     r += 2
-    ws1.cell(row=r, column=1, value="UNMONITORED COLLABORATORS SUMMARY (TRACKED SEPARATELY IN TABS 5 & 6)").font = dark_bold
+    ws1.cell(row=r, column=1, value="UNMONITORED COLLABORATORS SUMMARY (TRACKED SEPARATELY IN TABS 5 & 6 — FORMAT A)").font = dark_bold
     r += 1
 
     unmon_summary_headers = [
-        "Unmonitored Collaboration Scope", "Unique External Accounts", "August Delta Views", "August Collab Reels",
-        "September Delta Views", "September Collab Reels", "MoM Growth %"
+        "Unmonitored Collaboration Scope", "Unique External Accounts", "August Delta Views", "August New Uploads", "August Total Active Reels",
+        "September Delta Views", "September New Uploads", "September Total Active Reels", "MoM Views Growth %"
     ]
     for c_idx, th in enumerate(unmon_summary_headers, 1):
         cell = ws1.cell(row=r, column=c_idx, value=th)
@@ -710,44 +782,54 @@ def main():
         cell.fill = navy_fill
         cell.alignment = align_center
         cell.border = thin_border
-    ws1.row_dimensions[r].height = 22
+    ws1.row_dimensions[r].height = 24
     r += 1
 
-    # Compute unmonitored summary totals
+    # Compute unmonitored summary totals & reel sets
     tot_aug_ded_v = sum(d["aug_new"] + d["aug_decay"] for d in unmon_ded.values())
     tot_sep_ded_v = sum(d["sep_new"] + d["sep_decay"] for d in unmon_ded.values())
-    tot_ded_reels = sum(d["total_reels"] for d in unmon_ded.values())
     gw_ded = ((tot_sep_ded_v - tot_aug_ded_v) / tot_aug_ded_v * 100) if tot_aug_ded_v > 0 else 0.0
+
+    unmon_ded_aug_new = set().union(*(d["aug_new_reels"] for d in unmon_ded.values()))
+    unmon_ded_aug_active = set().union(*(d["aug_new_reels"] | d["aug_decay_reels"] for d in unmon_ded.values()))
+    unmon_ded_sep_new = set().union(*(d["sep_new_reels"] for d in unmon_ded.values()))
+    unmon_ded_sep_active = set().union(*(d["sep_new_reels"] | d["sep_decay_reels"] for d in unmon_ded.values()))
 
     tot_aug_ihi_v = sum(d["aug_new"] + d["aug_decay"] for d in unmon_ihi.values())
     tot_sep_ihi_v = sum(d["sep_new"] + d["sep_decay"] for d in unmon_ihi.values())
-    tot_ihi_reels = sum(d["total_reels"] for d in unmon_ihi.values())
     gw_ihi = ((tot_sep_ihi_v - tot_aug_ihi_v) / tot_aug_ihi_v * 100) if tot_aug_ihi_v > 0 else 0.0
 
+    unmon_ihi_aug_new = set().union(*(d["aug_new_reels"] for d in unmon_ihi.values()))
+    unmon_ihi_aug_active = set().union(*(d["aug_new_reels"] | d["aug_decay_reels"] for d in unmon_ihi.values()))
+    unmon_ihi_sep_new = set().union(*(d["sep_new_reels"] for d in unmon_ihi.values()))
+    unmon_ihi_sep_active = set().union(*(d["sep_new_reels"] | d["sep_decay_reels"] for d in unmon_ihi.values()))
+
     unmon_rows_data = [
-        ("Unmonitored Channels linked to Dedicated Collabs (Tab 5 — 100% Unconditional)", len(unmon_ded), tot_aug_ded_v, tot_ded_reels, tot_sep_ded_v, tot_ded_reels, gw_ded),
-        ("Unmonitored Channels linked to IHI Collabs (Tab 6 — Verified Spiritual Filter)", len(unmon_ihi), tot_aug_ihi_v, tot_ihi_reels, tot_sep_ihi_v, tot_ihi_reels, gw_ihi)
+        ("Unmonitored Channels linked to Dedicated Collabs (Tab 5 — 100% Unconditional)", len(unmon_ded), tot_aug_ded_v, len(unmon_ded_aug_new), len(unmon_ded_aug_active), tot_sep_ded_v, len(unmon_ded_sep_new), len(unmon_ded_sep_active), gw_ded),
+        ("Unmonitored Channels linked to IHI Collabs (Tab 6 — Verified Spiritual Filter)", len(unmon_ihi), tot_aug_ihi_v, len(unmon_ihi_aug_new), len(unmon_ihi_aug_active), tot_sep_ihi_v, len(unmon_ihi_sep_new), len(unmon_ihi_sep_active), gw_ihi)
     ]
 
-    for label, count, av, ar, sv, sr, gw in unmon_rows_data:
+    for label, count, av, anp, aar, sv, snp, sar, gw in unmon_rows_data:
         ws1.cell(row=r, column=1, value=label).font = dark_bold
         ws1.cell(row=r, column=2, value=count).alignment = align_center
         ws1.cell(row=r, column=3, value=round(av)).number_format = "#,##0"
-        ws1.cell(row=r, column=4, value=ar).number_format = "#,##0"
-        ws1.cell(row=r, column=5, value=round(sv)).number_format = "#,##0"
-        ws1.cell(row=r, column=6, value=sr).number_format = "#,##0"
-        gc = ws1.cell(row=r, column=7, value=gw / 100)
+        ws1.cell(row=r, column=4, value=anp).number_format = "#,##0"
+        ws1.cell(row=r, column=5, value=aar).number_format = "#,##0"
+        ws1.cell(row=r, column=6, value=round(sv)).number_format = "#,##0"
+        ws1.cell(row=r, column=7, value=snp).number_format = "#,##0"
+        ws1.cell(row=r, column=8, value=sar).number_format = "#,##0"
+        gc = ws1.cell(row=r, column=9, value=gw / 100)
         gc.number_format = "+0.0%;-0.0%;0.0%"
         gc.font = green_bold if gw >= 0 else red_bold
 
-        for c_idx in range(1, 8):
+        for c_idx in range(1, 10):
             cell = ws1.cell(row=r, column=c_idx)
             cell.border = thin_border
-            if c_idx not in (1, 7):
+            if c_idx not in (1, 9):
                 cell.font = dark_regular
-            if c_idx in (3, 5):
+            if c_idx in (3, 6, 9):
                 cell.alignment = align_right
-            if c_idx in (2, 4, 6):
+            if c_idx in (2, 4, 5, 7, 8):
                 cell.alignment = align_center
         ws1.row_dimensions[r].height = 20
         r += 1
@@ -755,38 +837,43 @@ def main():
     # Total Unmonitored row
     tot_unmon_aug_v = tot_aug_ded_v + tot_aug_ihi_v
     tot_unmon_sep_v = tot_sep_ded_v + tot_sep_ihi_v
-    tot_unmon_reels = tot_ded_reels + tot_ihi_reels
+    tot_unmon_aug_new = len(unmon_ded_aug_new | unmon_ihi_aug_new)
+    tot_unmon_aug_active = len(unmon_ded_aug_active | unmon_ihi_aug_active)
+    tot_unmon_sep_new = len(unmon_ded_sep_new | unmon_ihi_sep_new)
+    tot_unmon_sep_active = len(unmon_ded_sep_active | unmon_ihi_sep_active)
     tot_unmon_accounts = len(unmon_ded) + len(unmon_ihi)
     tot_unmon_gw = ((tot_unmon_sep_v - tot_unmon_aug_v) / tot_unmon_aug_v * 100) if tot_unmon_aug_v > 0 else 0.0
 
     ws1.cell(row=r, column=1, value="TOTAL UNMONITORED COLLABORATOR VIEWS (TABS 5 & 6)").font = dark_bold
     ws1.cell(row=r, column=2, value=tot_unmon_accounts).font = dark_bold
     ws1.cell(row=r, column=3, value=round(tot_unmon_aug_v)).number_format = "#,##0"
-    ws1.cell(row=r, column=4, value=tot_unmon_reels).number_format = "#,##0"
-    ws1.cell(row=r, column=5, value=round(tot_unmon_sep_v)).number_format = "#,##0"
-    ws1.cell(row=r, column=6, value=tot_unmon_reels).number_format = "#,##0"
-    ug_cell = ws1.cell(row=r, column=7, value=tot_unmon_gw / 100)
+    ws1.cell(row=r, column=4, value=tot_unmon_aug_new).number_format = "#,##0"
+    ws1.cell(row=r, column=5, value=tot_unmon_aug_active).number_format = "#,##0"
+    ws1.cell(row=r, column=6, value=round(tot_unmon_sep_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=7, value=tot_unmon_sep_new).number_format = "#,##0"
+    ws1.cell(row=r, column=8, value=tot_unmon_sep_active).number_format = "#,##0"
+    ug_cell = ws1.cell(row=r, column=9, value=tot_unmon_gw / 100)
     ug_cell.number_format = "+0.0%;-0.0%;0.0%"
     ug_cell.font = green_bold if tot_unmon_gw >= 0 else red_bold
 
-    for col_idx in range(1, 8):
+    for col_idx in range(1, 10):
         ws1.cell(row=r, column=col_idx).fill = highlight_fill
         ws1.cell(row=r, column=col_idx).border = thick_bottom
-        if col_idx in (2, 4, 6):
+        if col_idx in (2, 4, 5, 7, 8):
             ws1.cell(row=r, column=col_idx).alignment = align_center
-        elif col_idx in (3, 5, 7):
+        elif col_idx in (3, 6, 9):
             ws1.cell(row=r, column=col_idx).alignment = align_right
     ws1.row_dimensions[r].height = 22
     r += 1
 
-    # Table 4: GRAND TOTAL PORTFOLIO & ECOSYSTEM REACH
+    # Table 4: GRAND TOTAL PORTFOLIO & ECOSYSTEM REACH (FORMAT A)
     r += 2
-    ws1.cell(row=r, column=1, value="GRAND TOTAL: MONITORED + UNMONITORED ECOSYSTEM REACH (ZERO DUPLICATION)").font = dark_bold
+    ws1.cell(row=r, column=1, value="GRAND TOTAL: MONITORED + UNMONITORED ECOSYSTEM REACH (ZERO DUPLICATION — FORMAT A)").font = dark_bold
     r += 1
 
     grand_headers = [
-        "Ecosystem Reach Scope", "Channel / Account Count", "August 2026 Delta Views", "August Posts/Reels",
-        "September 2026 Delta Views", "September Posts/Reels", "MoM Growth %"
+        "Ecosystem Reach Scope", "Total Channels / Accounts", "August Delta Views", "August New Uploads", "August Total Active Reels",
+        "September Delta Views", "September New Uploads", "September Total Active Reels", "MoM Views Growth %"
     ]
     for c_idx, th in enumerate(grand_headers, 1):
         cell = ws1.cell(row=r, column=c_idx, value=th)
@@ -794,39 +881,45 @@ def main():
         cell.fill = header_fill
         cell.alignment = align_center
         cell.border = thin_border
-    ws1.row_dimensions[r].height = 22
+    ws1.row_dimensions[r].height = 24
     r += 1
 
     grand_aug_v = tot_aug_v + tot_unmon_aug_v
-    grand_aug_p = tot_aug_p + tot_unmon_reels
+    grand_aug_new = tot_aug_np + tot_unmon_aug_new
+    grand_aug_active = len(all_mon_aug_active | unmon_ded_aug_active | unmon_ihi_aug_active)
+
     grand_sep_v = tot_sep_v + tot_unmon_sep_v
-    grand_sep_p = tot_sep_p + tot_unmon_reels
+    grand_sep_new = tot_sep_np + tot_unmon_sep_new
+    grand_sep_active = len(all_mon_sep_active | unmon_ded_sep_active | unmon_ihi_sep_active)
+
     grand_gw = ((grand_sep_v - grand_aug_v) / grand_aug_v * 100) if grand_aug_v > 0 else 0.0
 
     grand_rows = [
-        ("1. Official Monitored Channels Portfolio (Tabs 2, 3, 4)", len(profile_list), tot_aug_v, tot_aug_p, tot_sep_v, tot_sep_p, tot_growth),
-        ("2. External Unmonitored Collaborators Ecosystem (Tabs 5, 6)", tot_unmon_accounts, tot_unmon_aug_v, tot_unmon_reels, tot_unmon_sep_v, tot_unmon_reels, tot_unmon_gw),
+        ("1. Official Monitored Channels Portfolio (Tabs 2, 3, 4)", len(profile_list), tot_aug_v, tot_aug_np, tot_aug_ar, tot_sep_v, tot_sep_np, tot_sep_ar, tot_growth),
+        ("2. External Unmonitored Collaborators Ecosystem (Tabs 5, 6)", tot_unmon_accounts, tot_unmon_aug_v, tot_unmon_aug_new, tot_unmon_aug_active, tot_unmon_sep_v, tot_unmon_sep_new, tot_unmon_sep_active, tot_unmon_gw),
     ]
 
-    for label, count, av, ap, sv, sp, gw in grand_rows:
+    for label, count, av, anp, aar, sv, snp, sar, gw in grand_rows:
         ws1.cell(row=r, column=1, value=label).font = dark_bold
         ws1.cell(row=r, column=2, value=count).alignment = align_center
         ws1.cell(row=r, column=3, value=round(av)).number_format = "#,##0"
-        ws1.cell(row=r, column=4, value=ap).number_format = "#,##0"
-        ws1.cell(row=r, column=5, value=round(sv)).number_format = "#,##0"
-        ws1.cell(row=r, column=6, value=sp).number_format = "#,##0"
-        gc = ws1.cell(row=r, column=7, value=gw / 100)
+        ws1.cell(row=r, column=4, value=anp).number_format = "#,##0"
+        ws1.cell(row=r, column=5, value=aar).number_format = "#,##0"
+        ws1.cell(row=r, column=6, value=round(sv)).number_format = "#,##0"
+        ws1.cell(row=r, column=7, value=snp).number_format = "#,##0"
+        ws1.cell(row=r, column=8, value=sar).number_format = "#,##0"
+        gc = ws1.cell(row=r, column=9, value=gw / 100)
         gc.number_format = "+0.0%;-0.0%;0.0%"
         gc.font = green_bold if gw >= 0 else red_bold
 
-        for c_idx in range(1, 8):
+        for c_idx in range(1, 10):
             cell = ws1.cell(row=r, column=c_idx)
             cell.border = thin_border
-            if c_idx not in (1, 7):
+            if c_idx not in (1, 9):
                 cell.font = dark_regular
-            if c_idx in (3, 5):
+            if c_idx in (3, 6, 9):
                 cell.alignment = align_right
-            if c_idx in (2, 4, 6):
+            if c_idx in (2, 4, 5, 7, 8):
                 cell.alignment = align_center
         ws1.row_dimensions[r].height = 20
         r += 1
@@ -835,26 +928,28 @@ def main():
     ws1.cell(row=r, column=1, value="COMBINED ECOSYSTEM GRAND TOTAL (Zero View Overlap)").font = dark_bold
     ws1.cell(row=r, column=2, value=len(profile_list) + tot_unmon_accounts).font = dark_bold
     ws1.cell(row=r, column=3, value=round(grand_aug_v)).number_format = "#,##0"
-    ws1.cell(row=r, column=4, value=grand_aug_p).number_format = "#,##0"
-    ws1.cell(row=r, column=5, value=round(grand_sep_v)).number_format = "#,##0"
-    ws1.cell(row=r, column=6, value=grand_sep_p).number_format = "#,##0"
-    gg_cell = ws1.cell(row=r, column=7, value=grand_gw / 100)
+    ws1.cell(row=r, column=4, value=grand_aug_new).number_format = "#,##0"
+    ws1.cell(row=r, column=5, value=grand_aug_active).number_format = "#,##0"
+    ws1.cell(row=r, column=6, value=round(grand_sep_v)).number_format = "#,##0"
+    ws1.cell(row=r, column=7, value=grand_sep_new).number_format = "#,##0"
+    ws1.cell(row=r, column=8, value=grand_sep_active).number_format = "#,##0"
+    gg_cell = ws1.cell(row=r, column=9, value=grand_gw / 100)
     gg_cell.number_format = "+0.0%;-0.0%;0.0%"
     gg_cell.font = green_bold if grand_gw >= 0 else red_bold
 
-    for col_idx in range(1, 8):
+    for col_idx in range(1, 10):
         ws1.cell(row=r, column=col_idx).fill = highlight_fill
         ws1.cell(row=r, column=col_idx).border = double_bottom
-        if col_idx in (2, 4, 6):
+        if col_idx in (2, 4, 5, 7, 8):
             ws1.cell(row=r, column=col_idx).alignment = align_center
-        elif col_idx in (3, 5, 7):
+        elif col_idx in (3, 6, 9):
             ws1.cell(row=r, column=col_idx).alignment = align_right
     ws1.row_dimensions[r].height = 24
     r += 1
 
     # Note banner
-    ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-    note_cell = ws1.cell(row=r, column=1, value="* ZERO REPEATED VIEWS PROOF: Every reel is split strictly among its co-authors (Views / N). Monitored creators receive their exact fraction in Tabs 2-4, and outside collaborators receive their fraction in Tabs 5-6. The fractions sum to exactly 100% of the reel's play count. No view is ever double-counted or credited twice.")
+    ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+    note_cell = ws1.cell(row=r, column=1, value="* FORMAT A REEL-TO-VIEW MATCH PROOF: 'New Uploads' reflects newly created reels in that calendar month. 'Total Active Reels' reflects every reel generating delta views (New Uploads + Surviving Decay Reels). Co-authors are split strictly (Views / N), guaranteeing zero view duplication.")
     note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="047857")
     note_cell.alignment = align_left
     ws1.row_dimensions[r].height = 20
@@ -1107,10 +1202,12 @@ def main():
     ws5.views.sheetView[0].showGridLines = True
 
     unmon_headers = [
-        "#", "Unmonitored Username", "Instagram Link", "Linked Monitored Dedicated Channels",
+        "#", "Unmonitored Username", "Instagram Link", "Linked Monitored Channels",
         "Primary Role", "August New Upload Views", "August Decay Delta", "Total August Delta Views",
+        "August New Uploads", "August Active Reels",
         "September New Upload Views", "September Decay Delta", "Total September Delta Views",
-        "MoM Growth %", "Total Collab Reels", "Filter Status"
+        "September New Uploads", "September Active Reels",
+        "MoM Views Growth %", "Total Collab Reels", "Filter Status"
     ]
     for c_idx, h in enumerate(unmon_headers, 1):
         cell = ws5.cell(row=1, column=c_idx, value=h)
@@ -1152,25 +1249,31 @@ def main():
         ws5.cell(row=row_num, column=6, value=round(data["aug_new"])).number_format = "#,##0"
         ws5.cell(row=row_num, column=7, value=round(data["aug_decay"])).number_format = "#,##0"
         ws5.cell(row=row_num, column=8, value=round(av_tot)).number_format = "#,##0"
+        ws5.cell(row=row_num, column=9, value=len(data["aug_new_reels"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=10, value=len(data["aug_new_reels"] | data["aug_decay_reels"])).number_format = "#,##0"
 
-        ws5.cell(row=row_num, column=9, value=round(data["sep_new"])).number_format = "#,##0"
-        ws5.cell(row=row_num, column=10, value=round(data["sep_decay"])).number_format = "#,##0"
-        ws5.cell(row=row_num, column=11, value=round(sv_tot)).number_format = "#,##0"
+        ws5.cell(row=row_num, column=11, value=round(data["sep_new"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=12, value=round(data["sep_decay"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=13, value=round(sv_tot)).number_format = "#,##0"
+        ws5.cell(row=row_num, column=14, value=len(data["sep_new_reels"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=15, value=len(data["sep_new_reels"] | data["sep_decay_reels"])).number_format = "#,##0"
 
-        g_c = ws5.cell(row=row_num, column=12, value=gw / 100)
+        g_c = ws5.cell(row=row_num, column=16, value=gw / 100)
         g_c.number_format = "+0.0%;-0.0%;0.0%"
         g_c.font = green_bold if gw >= 0 else red_bold
 
-        ws5.cell(row=row_num, column=13, value=data["total_reels"]).number_format = "#,##0"
-        ws5.cell(row=row_num, column=14, value="Dedicated Unconditional").alignment = align_center
+        ws5.cell(row=row_num, column=17, value=len(data["total_reels"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=18, value="Dedicated Unconditional").alignment = align_center
 
-        for c_idx in range(1, 15):
+        for c_idx in range(1, 19):
             cell = ws5.cell(row=row_num, column=c_idx)
             cell.border = thin_border
-            if c_idx not in (3, 12):
+            if c_idx not in (3, 16):
                 cell.font = dark_regular
-            if c_idx in (6, 7, 8, 9, 10, 11, 13):
+            if c_idx in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17):
                 cell.alignment = align_right
+            if c_idx in (1, 5, 18):
+                cell.alignment = align_center
 
         ws5.row_dimensions[row_num].height = 18
 
@@ -1220,25 +1323,31 @@ def main():
         ws6.cell(row=row_num, column=6, value=round(data["aug_new"])).number_format = "#,##0"
         ws6.cell(row=row_num, column=7, value=round(data["aug_decay"])).number_format = "#,##0"
         ws6.cell(row=row_num, column=8, value=round(av_tot)).number_format = "#,##0"
+        ws6.cell(row=row_num, column=9, value=len(data["aug_new_reels"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=10, value=len(data["aug_new_reels"] | data["aug_decay_reels"])).number_format = "#,##0"
 
-        ws6.cell(row=row_num, column=9, value=round(data["sep_new"])).number_format = "#,##0"
-        ws6.cell(row=row_num, column=10, value=round(data["sep_decay"])).number_format = "#,##0"
-        ws6.cell(row=row_num, column=11, value=round(sv_tot)).number_format = "#,##0"
+        ws6.cell(row=row_num, column=11, value=round(data["sep_new"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=12, value=round(data["sep_decay"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=13, value=round(sv_tot)).number_format = "#,##0"
+        ws6.cell(row=row_num, column=14, value=len(data["sep_new_reels"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=15, value=len(data["sep_new_reels"] | data["sep_decay_reels"])).number_format = "#,##0"
 
-        g_c = ws6.cell(row=row_num, column=12, value=gw / 100)
+        g_c = ws6.cell(row=row_num, column=16, value=gw / 100)
         g_c.number_format = "+0.0%;-0.0%;0.0%"
         g_c.font = green_bold if gw >= 0 else red_bold
 
-        ws6.cell(row=row_num, column=13, value=data["total_reels"]).number_format = "#,##0"
-        ws6.cell(row=row_num, column=14, value="Verified Spiritual Match").alignment = align_center
+        ws6.cell(row=row_num, column=17, value=len(data["total_reels"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=18, value="Verified Spiritual Match").alignment = align_center
 
-        for c_idx in range(1, 15):
+        for c_idx in range(1, 19):
             cell = ws6.cell(row=row_num, column=c_idx)
             cell.border = thin_border
-            if c_idx not in (3, 12):
+            if c_idx not in (3, 16):
                 cell.font = dark_regular
-            if c_idx in (6, 7, 8, 9, 10, 11, 13):
+            if c_idx in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17):
                 cell.alignment = align_right
+            if c_idx in (1, 5, 18):
+                cell.alignment = align_center
 
         ws6.row_dimensions[row_num].height = 18
 
