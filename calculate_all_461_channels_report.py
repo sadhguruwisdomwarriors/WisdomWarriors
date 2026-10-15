@@ -149,6 +149,7 @@ def main():
                 "coauthors": extract_coauthors(coauthors),
                 "vpc": vpc,
                 "ts": ts,
+                "ym": ts.strftime("%Y-%m") if ts else "",
                 "caption": caption or "",
                 "hashtags": hashtags or [],
                 "mentions": mentions or [],
@@ -165,8 +166,8 @@ def main():
     print(f"Unique posts in Run 111: {len(posts_by_run[111])}")
     print(f"Unique posts in Run 112: {len(posts_by_run[112])}")
 
-    # Build direct index: channel_posts[run_id][channel_clean_username][shortcode]
-    print("\nIndexing posts by channel and applying taxonomy filters...")
+    # Build direct index for monitored channels: channel_posts[run_id][channel_clean_username][shortcode]
+    print("\nIndexing posts by monitored channel and applying taxonomy filters...")
     channel_posts = defaultdict(lambda: defaultdict(dict))
 
     for rid, sc_dict in posts_by_run.items():
@@ -212,7 +213,7 @@ def main():
                         "is_reel": p["is_reel"]
                     }
 
-    def calculate_month_metrics(target_year: int, target_month: int, s1_run_id: int, s2_run_id: int):
+    def calculate_monitored_month_metrics(target_year: int, target_month: int, s1_run_id: int, s2_run_id: int):
         target_ym = f"{target_year}-{target_month:02d}"
         prior_months = get_prior_6_months(target_year, target_month)
         prior_months_set = set(prior_months)
@@ -346,14 +347,14 @@ def main():
             }
         return results
 
-    # 3. Calculate August and September 2026
-    print("\nCalculating August 2026 metrics (S1=97, S2=111)...")
-    aug_res = calculate_month_metrics(2026, 8, 97, 111)
+    # 3. Calculate August and September 2026 for Monitored Channels
+    print("\nCalculating August 2026 metrics for Monitored Channels (S1=97, S2=111)...")
+    aug_res = calculate_monitored_month_metrics(2026, 8, 97, 111)
 
-    print("Calculating September 2026 metrics (S1=111, S2=112)...")
-    sep_res = calculate_month_metrics(2026, 9, 111, 112)
+    print("Calculating September 2026 metrics for Monitored Channels (S1=111, S2=112)...")
+    sep_res = calculate_monitored_month_metrics(2026, 9, 111, 112)
 
-    # 4. Sync / Upsert into monthly_channel_metrics table
+    # 4. Sync / Upsert Monitored Metrics into monthly_channel_metrics table
     print("\nSyncing calculated metrics into monthly_channel_metrics table...")
     upsert_sql = """
         INSERT INTO monthly_channel_metrics (
@@ -382,7 +383,6 @@ def main():
         clean_u = prof["clean_username"]
         ig_id = prof["instagram_id"]
 
-        # August metric
         aug_data = aug_res.get(clean_u, {})
         aug_v = aug_data.get("total_views", 0.0)
         aug_p = aug_data.get("post_count", 0)
@@ -395,7 +395,6 @@ def main():
             aug_p, aug_r, aug_s, aug_vpp, 97, 111
         ))
 
-        # September metric
         sep_data = sep_res.get(clean_u, {})
         sep_v = sep_data.get("total_views", 0.0)
         sep_p = sep_data.get("post_count", 0)
@@ -413,8 +412,119 @@ def main():
     conn.commit()
     print("Database sync completed successfully.")
 
-    # 5. Build Comprehensive Excel Workbook Report
-    print("\nGenerating comprehensive Excel workbook...")
+    # 5. CALCULATE UNMONITORED CHANNELS SEPARATELY (ZERO FAKE VIEWS)
+    print("\nCalculating Unmonitored Channels collaborative metrics (Dedicated & IHI)...")
+
+    all_collab_scs = set()
+    for rid in (97, 111, 112):
+        for sc, p in posts_by_run[rid].items():
+            parts = list(set([p["owner"], *p["coauthors"]]))
+            if len(parts) > 1 and any(x in target_usernames for x in parts):
+                all_collab_scs.add(sc)
+
+    unmon_ded = defaultdict(lambda: {
+        "aug_new": 0.0, "aug_decay": 0.0, "sep_new": 0.0, "sep_decay": 0.0,
+        "linked": set(), "is_owner_count": 0, "total_reels": 0
+    })
+    unmon_ihi = defaultdict(lambda: {
+        "aug_new": 0.0, "aug_decay": 0.0, "sep_new": 0.0, "sep_decay": 0.0,
+        "linked": set(), "is_owner_count": 0, "total_reels": 0
+    })
+
+    for sc in all_collab_scs:
+        p_latest = None
+        for rid in (112, 111, 97):
+            if sc in posts_by_run[rid]:
+                p_latest = posts_by_run[rid][sc]
+                break
+        if not p_latest:
+            continue
+
+        owner = p_latest["owner"]
+        coauthors = p_latest["coauthors"]
+        parts = list(set([owner, *coauthors]))
+        split = len(parts)
+
+        mon_parts = [x for x in parts if x in target_usernames]
+        ext_parts = [x for x in parts if x not in target_usernames]
+        if not mon_parts or not ext_parts:
+            continue
+
+        ym = p_latest.get("ym") or (p_latest["ts"].strftime("%Y-%m") if p_latest.get("ts") else "")
+
+        has_ded = any(category_map[m].strip().lower() == "dedicated" for m in mon_parts)
+        has_ihi = any(category_map[m].strip().lower() == "in-house influencer" for m in mon_parts)
+
+        post_obj = SimpleNamespace(
+            caption=p_latest["caption"],
+            hashtags=p_latest["hashtags"],
+            mentions=p_latest["mentions"],
+            tagged_users=p_latest["tagged_users"]
+        )
+        matches_filter, _, _, _ = check_post_matches_filters(
+            post_obj, hashtag_map, mention_map, tagged_user_map, keyword_matches
+        )
+
+        v97 = posts_by_run[97].get(sc, {}).get("vpc", None)
+        v111 = posts_by_run[111].get(sc, {}).get("vpc", None)
+        v112 = posts_by_run[112].get(sc, {}).get("vpc", None)
+
+        # August calculation
+        aug_new_share = 0.0
+        aug_decay_share = 0.0
+        if ym == "2026-08":
+            if v111 is not None:
+                aug_new_share = float(v111) / split
+        elif "2026-02" <= ym <= "2026-07":
+            if v97 is not None and v111 is not None:
+                d = max(0, v111 - v97)
+                aug_decay_share = float(d) / split
+
+        # September calculation
+        sep_new_share = 0.0
+        sep_decay_share = 0.0
+        if ym == "2026-09":
+            if v112 is not None:
+                sep_new_share = float(v112) / split
+        elif "2026-03" <= ym <= "2026-08":
+            if v111 is not None and v112 is not None:
+                d = max(0, v112 - v111)
+                sep_decay_share = float(d) / split
+
+        # Attribution to Dedicated Unmonitored List
+        if has_ded:
+            for ext in ext_parts:
+                unmon_ded[ext]["aug_new"] += aug_new_share
+                unmon_ded[ext]["aug_decay"] += aug_decay_share
+                unmon_ded[ext]["sep_new"] += sep_new_share
+                unmon_ded[ext]["sep_decay"] += sep_decay_share
+                unmon_ded[ext]["total_reels"] += 1
+                if ext == owner:
+                    unmon_ded[ext]["is_owner_count"] += 1
+                for m in mon_parts:
+                    if category_map[m].strip().lower() == "dedicated":
+                        unmon_ded[ext]["linked"].add(m)
+
+        # Attribution to IHI Unmonitored List (Filter-passing only)
+        if has_ihi and not has_ded:
+            if matches_filter:
+                for ext in ext_parts:
+                    unmon_ihi[ext]["aug_new"] += aug_new_share
+                    unmon_ihi[ext]["aug_decay"] += aug_decay_share
+                    unmon_ihi[ext]["sep_new"] += sep_new_share
+                    unmon_ihi[ext]["sep_decay"] += sep_decay_share
+                    unmon_ihi[ext]["total_reels"] += 1
+                    if ext == owner:
+                        unmon_ihi[ext]["is_owner_count"] += 1
+                    for m in mon_parts:
+                        if category_map[m].strip().lower() == "in-house influencer":
+                            unmon_ihi[ext]["linked"].add(m)
+
+    print(f"Total Unmonitored Channels linked to Dedicated: {len(unmon_ded)}")
+    print(f"Total Unmonitored Channels linked to IHI: {len(unmon_ihi)}")
+
+    # 6. BUILD EXCEL WORKBOOK REPORT
+    print("\nGenerating comprehensive Excel workbook with 6 sheets...")
     wb = openpyxl.Workbook()
     wb.remove(wb.active)  # Remove default sheet
 
@@ -424,6 +534,8 @@ def main():
     header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
     alt_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
     highlight_fill = PatternFill(start_color="EDE9FE", end_color="EDE9FE", fill_type="solid")
+    light_blue_fill = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+    light_amber_fill = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
 
     white_bold = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
     white_title = Font(name="Segoe UI", size=15, bold=True, color="FFFFFF")
@@ -432,10 +544,12 @@ def main():
     dark_regular = Font(name="Segoe UI", size=9, bold=False, color="1E293B")
     green_bold = Font(name="Segoe UI", size=9, bold=True, color="047857")
     red_bold = Font(name="Segoe UI", size=9, bold=True, color="B91C1C")
+    gray_regular = Font(name="Segoe UI", size=9, bold=False, color="64748B")
 
     thin_border_side = Side(style="thin", color="E2E8F0")
     thin_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
     thick_bottom = Border(bottom=Side(style="medium", color="0F172A"), top=thin_border_side, left=thin_border_side, right=thin_border_side)
+    double_bottom = Border(bottom=Side(style="double", color="0F172A"), top=thin_border_side, left=thin_border_side, right=thin_border_side)
 
     align_center = Alignment(horizontal="center", vertical="center")
     align_left = Alignment(horizontal="left", vertical="center")
@@ -476,6 +590,7 @@ def main():
     ws1.row_dimensions[1].height = 28
     ws1.row_dimensions[2].height = 18
 
+    # Table 1: Monitored Channels Portfolio Summary (100% UNCHANGED)
     headers_t1 = [
         "Category Architecture", "Total Channels", "August 2026 Delta Views", "August New Posts",
         "September 2026 Delta Views", "September New Posts", "MoM Growth %"
@@ -541,9 +656,9 @@ def main():
             ws1.cell(row=r, column=col_idx).alignment = align_right
     ws1.row_dimensions[r].height = 22
 
-    # Top 10 Channels September
-    r += 3
-    ws1.cell(row=r, column=1, value="TOP 10 CHANNELS BY SEPTEMBER 2026 DELTA VIEWS").font = dark_bold
+    # Top 10 Channels September (UNCHANGED)
+    r += 2
+    ws1.cell(row=r, column=1, value="TOP 10 MONITORED CHANNELS BY SEPTEMBER 2026 DELTA VIEWS").font = dark_bold
     r += 1
     top10_headers = ["Rank", "Username", "Category", "Micro Unit", "August Views", "September Views", "MoM Growth %"]
     for c_idx, th in enumerate(top10_headers, 1):
@@ -580,8 +695,112 @@ def main():
         ws1.row_dimensions[r].height = 18
         r += 1
 
+    # Table 3: UNMONITORED COLLABORATIVE CHANNELS SUMMARY (SEPARATE STANDALONE AUDIT)
+    r += 2
+    ws1.cell(row=r, column=1, value="UNMONITORED COLLABORATORS SUMMARY (TRACKED SEPARATELY IN TABS 5 & 6)").font = dark_bold
+    r += 1
+
+    unmon_summary_headers = [
+        "Unmonitored Collaboration Scope", "Unique External Accounts", "August Delta Views", "August Collab Reels",
+        "September Delta Views", "September Collab Reels", "MoM Growth %"
+    ]
+    for c_idx, th in enumerate(unmon_summary_headers, 1):
+        cell = ws1.cell(row=r, column=c_idx, value=th)
+        cell.font = white_bold
+        cell.fill = navy_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws1.row_dimensions[r].height = 22
+    r += 1
+
+    # Compute unmonitored summary totals
+    tot_aug_ded_v = sum(d["aug_new"] + d["aug_decay"] for d in unmon_ded.values())
+    tot_sep_ded_v = sum(d["sep_new"] + d["sep_decay"] for d in unmon_ded.values())
+    tot_ded_reels = sum(d["total_reels"] for d in unmon_ded.values())
+    gw_ded = ((tot_sep_ded_v - tot_aug_ded_v) / tot_aug_ded_v * 100) if tot_aug_ded_v > 0 else 0.0
+
+    tot_aug_ihi_v = sum(d["aug_new"] + d["aug_decay"] for d in unmon_ihi.values())
+    tot_sep_ihi_v = sum(d["sep_new"] + d["sep_decay"] for d in unmon_ihi.values())
+    tot_ihi_reels = sum(d["total_reels"] for d in unmon_ihi.values())
+    gw_ihi = ((tot_sep_ihi_v - tot_aug_ihi_v) / tot_aug_ihi_v * 100) if tot_aug_ihi_v > 0 else 0.0
+
+    unmon_rows_data = [
+        ("Unmonitored Channels linked to Dedicated Collabs (Tab 5 — 100% Unconditional)", len(unmon_ded), tot_aug_ded_v, tot_ded_reels, tot_sep_ded_v, tot_ded_reels, gw_ded),
+        ("Unmonitored Channels linked to IHI Collabs (Tab 6 — Verified Spiritual Filter)", len(unmon_ihi), tot_aug_ihi_v, tot_ihi_reels, tot_sep_ihi_v, tot_ihi_reels, gw_ihi)
+    ]
+
+    for label, count, av, ar, sv, sr, gw in unmon_rows_data:
+        ws1.cell(row=r, column=1, value=label).font = dark_bold
+        ws1.cell(row=r, column=2, value=count).alignment = align_center
+        ws1.cell(row=r, column=3, value=round(av)).number_format = "#,##0"
+        ws1.cell(row=r, column=4, value=ar).number_format = "#,##0"
+        ws1.cell(row=r, column=5, value=round(sv)).number_format = "#,##0"
+        ws1.cell(row=r, column=6, value=sr).number_format = "#,##0"
+        gc = ws1.cell(row=r, column=7, value=gw / 100)
+        gc.number_format = "+0.0%;-0.0%;0.0%"
+        gc.font = green_bold if gw >= 0 else red_bold
+
+        for c_idx in range(1, 8):
+            cell = ws1.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            if c_idx not in (1, 7):
+                cell.font = dark_regular
+            if c_idx in (3, 5):
+                cell.alignment = align_right
+            if c_idx in (2, 4, 6):
+                cell.alignment = align_center
+        ws1.row_dimensions[r].height = 20
+        r += 1
+
+    # Note banner
+    ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+    note_cell = ws1.cell(row=r, column=1, value="* Strict Rule: Unmonitored views are tracked separately in Tabs 5 & 6 and are NEVER merged into the official 461 Monitored Portfolio above.")
+    note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="64748B")
+    note_cell.alignment = align_left
+    ws1.row_dimensions[r].height = 18
+
+    # Table 4: CONDITIONS & METHODOLOGY ARCHITECTURE REFERENCE
+    r += 2
+    ws1.cell(row=r, column=1, value="MASTER CONDITIONS & METHODOLOGY ARCHITECTURE REFERENCE").font = dark_bold
+    r += 1
+
+    cond_headers = ["Scope", "Classification", "Eligible Content & Qualification", "Monthly Delta View Calculation Methodology", "Missing / Dropped Reels Handling"]
+    for c_idx, th in enumerate(cond_headers, 1):
+        cell = ws1.cell(row=r, column=c_idx, value=th)
+        cell.font = white_bold
+        cell.fill = header_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws1.row_dimensions[r].height = 24
+    r += 1
+
+    methodology_rows = [
+        ("Monitored Channels (461)", "Dedicated (268)", "100% of all uploads and collaborative reels credited unconditionally (no keyword/filter checks).", "Target Month New Uploads (S2) + 6-Month Prior Decay Window (S2 - S1 delta). Co-author split: vpc / split_factor.", "Case 1: Imputed decay growth (S1 * g). Case 2: S1 history normalized average. Case 4: Clamped at 0. Case 5: Viral spike uncapped."),
+        ("Monitored Channels (461)", "In-House Influencer (193)", "Only reels containing verified allowed hashtags, mentions, tags, or caption keywords. Personal/commercial ads excluded.", "Target Month New Uploads (S2) + 6-Month Prior Decay Window (S2 - S1 delta) for qualifying reels. Co-author split: vpc / split_factor.", "Case 1: Imputed decay growth. Case 2: S1 history normalized average. Case 4: Clamped at 0. Case 5: Viral spike uncapped."),
+        ("Unmonitored Channels (Separate Tab 5)", "Dedicated Collabs", "All collaborative reels co-authored with any monitored Dedicated channel (owner or invited collaborator).", "Zero Fake Views: Target Month New Uploads (S2/split) + Measured organic difference on surviving prior reels (max(0, S2 - S1)/split).", "Strict Clamping: If missing in S2 or no S1 baseline, delta = 0.0. No artificial views or estimates imputed."),
+        ("Unmonitored Channels (Separate Tab 6)", "IHI Collabs (Filtered)", "Only collaborative reels co-authored with IHI channels that pass verified spiritual taxonomy. Commercial ads strictly excluded.", "Zero Fake Views: Target Month New Uploads (S2/split) + Measured organic difference on surviving prior reels (max(0, S2 - S1)/split).", "Strict Clamping: Non-spiritual brand ads = 0.0 views. Missing in S2 or no S1 baseline = 0.0 delta. Zero fake views.")
+    ]
+
+    for scope, cat, elig, meth, miss in methodology_rows:
+        ws1.cell(row=r, column=1, value=scope).font = dark_bold
+        ws1.cell(row=r, column=2, value=cat).font = dark_bold
+        ws1.cell(row=r, column=3, value=elig).font = dark_regular
+        ws1.cell(row=r, column=4, value=meth).font = dark_regular
+        ws1.cell(row=r, column=5, value=miss).font = dark_regular
+
+        for c_idx in range(1, 6):
+            cell = ws1.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            if "Unmonitored" in scope:
+                cell.fill = light_blue_fill
+            else:
+                cell.fill = light_amber_fill
+        ws1.row_dimensions[r].height = 42
+        r += 1
+
     # -------------------------------------------------------------
-    # TAB 2: ALL 461 CHANNELS MASTER MATRIX
+    # TAB 2: ALL 461 CHANNELS MASTER MATRIX (100% UNCHANGED)
     # -------------------------------------------------------------
     ws2 = wb.create_sheet(title="All Channels Master Matrix")
     ws2.views.sheetView[0].showGridLines = True
@@ -600,7 +819,6 @@ def main():
         cell.border = thin_border
     ws2.row_dimensions[1].height = 26
 
-    # Sort master matrix: Dedicated first, then by September views desc
     sorted_profiles = sorted(profile_list, key=lambda p: (0 if p["category"] == "Dedicated" else 1, -sep_res.get(p["clean_username"], {}).get("total_views", 0.0)))
 
     for idx, p in enumerate(sorted_profiles, 1):
@@ -663,7 +881,7 @@ def main():
         ws2.row_dimensions[row_num].height = 18
 
     # -------------------------------------------------------------
-    # TAB 3: AUGUST 2026 BREAKDOWN
+    # TAB 3: AUGUST 2026 BREAKDOWN (100% UNCHANGED)
     # -------------------------------------------------------------
     ws3 = wb.create_sheet(title="August 2026 Breakdown")
     ws3.views.sheetView[0].showGridLines = True
@@ -708,7 +926,7 @@ def main():
         ws3.row_dimensions[row_num].height = 18
 
     # -------------------------------------------------------------
-    # TAB 4: SEPTEMBER 2026 BREAKDOWN
+    # TAB 4: SEPTEMBER 2026 BREAKDOWN (100% UNCHANGED)
     # -------------------------------------------------------------
     ws4 = wb.create_sheet(title="September 2026 Breakdown")
     ws4.views.sheetView[0].showGridLines = True
@@ -752,16 +970,158 @@ def main():
 
         ws4.row_dimensions[row_num].height = 18
 
-    # Auto-adjust column widths across all sheets
-    for ws in [ws1, ws2, ws3, ws4]:
+    # -------------------------------------------------------------
+    # TAB 5: UNMONITORED - DEDICATED COLLABS (NEW TAB)
+    # -------------------------------------------------------------
+    ws5 = wb.create_sheet(title="Unmonitored - Dedicated Collabs")
+    ws5.views.sheetView[0].showGridLines = True
+
+    unmon_headers = [
+        "#", "Unmonitored Username", "Instagram Link", "Linked Monitored Dedicated Channels",
+        "Primary Role", "August New Upload Views", "August Decay Delta", "Total August Delta Views",
+        "September New Upload Views", "September Decay Delta", "Total September Delta Views",
+        "MoM Growth %", "Total Collab Reels", "Filter Status"
+    ]
+    for c_idx, h in enumerate(unmon_headers, 1):
+        cell = ws5.cell(row=1, column=c_idx, value=h)
+        cell.font = white_bold
+        cell.fill = purple_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws5.row_dimensions[1].height = 26
+
+    # Sort unmonitored dedicated by September Total Delta desc
+    sorted_unmon_ded = sorted(
+        unmon_ded.items(),
+        key=lambda item: (item[1]["sep_new"] + item[1]["sep_decay"]),
+        reverse=True
+    )
+
+    for idx, (uname, data) in enumerate(sorted_unmon_ded, 1):
+        row_num = idx + 1
+        av_tot = data["aug_new"] + data["aug_decay"]
+        sv_tot = data["sep_new"] + data["sep_decay"]
+        gw = ((sv_tot - av_tot) / av_tot * 100) if av_tot > 0 else (100.0 if sv_tot > 0 else 0.0)
+
+        linked_str = ", ".join(f"@{m}" for m in sorted(data["linked"])[:3])
+        if len(data["linked"]) > 3:
+            linked_str += f" (+{len(data['linked'])-3} more)"
+
+        role_str = "Original Publisher" if data["is_owner_count"] > 0 else "Invited Co-Author"
+
+        ws5.cell(row=row_num, column=1, value=idx).alignment = align_center
+        ws5.cell(row=row_num, column=2, value=f"@{uname}")
+        
+        link_cell = ws5.cell(row=row_num, column=3, value=f"https://www.instagram.com/{uname}/")
+        link_cell.hyperlink = f"https://www.instagram.com/{uname}/"
+        link_cell.font = Font(name="Segoe UI", size=9, color="2563EB", underline="single")
+
+        ws5.cell(row=row_num, column=4, value=linked_str)
+        ws5.cell(row=row_num, column=5, value=role_str).alignment = align_center
+
+        ws5.cell(row=row_num, column=6, value=round(data["aug_new"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=7, value=round(data["aug_decay"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=8, value=round(av_tot)).number_format = "#,##0"
+
+        ws5.cell(row=row_num, column=9, value=round(data["sep_new"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=10, value=round(data["sep_decay"])).number_format = "#,##0"
+        ws5.cell(row=row_num, column=11, value=round(sv_tot)).number_format = "#,##0"
+
+        g_c = ws5.cell(row=row_num, column=12, value=gw / 100)
+        g_c.number_format = "+0.0%;-0.0%;0.0%"
+        g_c.font = green_bold if gw >= 0 else red_bold
+
+        ws5.cell(row=row_num, column=13, value=data["total_reels"]).number_format = "#,##0"
+        ws5.cell(row=row_num, column=14, value="Dedicated Unconditional").alignment = align_center
+
+        for c_idx in range(1, 15):
+            cell = ws5.cell(row=row_num, column=c_idx)
+            cell.border = thin_border
+            if c_idx not in (3, 12):
+                cell.font = dark_regular
+            if c_idx in (6, 7, 8, 9, 10, 11, 13):
+                cell.alignment = align_right
+
+        ws5.row_dimensions[row_num].height = 18
+
+    # -------------------------------------------------------------
+    # TAB 6: UNMONITORED - IHI COLLABS (NEW TAB - FILTER PASSING ONLY)
+    # -------------------------------------------------------------
+    ws6 = wb.create_sheet(title="Unmonitored - IHI Collabs")
+    ws6.views.sheetView[0].showGridLines = True
+
+    for c_idx, h in enumerate(unmon_headers, 1):
+        cell = ws6.cell(row=1, column=c_idx, value=h)
+        cell.font = white_bold
+        cell.fill = navy_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws6.row_dimensions[1].height = 26
+
+    # Sort unmonitored IHI by September Total Delta desc
+    sorted_unmon_ihi = sorted(
+        unmon_ihi.items(),
+        key=lambda item: (item[1]["sep_new"] + item[1]["sep_decay"]),
+        reverse=True
+    )
+
+    for idx, (uname, data) in enumerate(sorted_unmon_ihi, 1):
+        row_num = idx + 1
+        av_tot = data["aug_new"] + data["aug_decay"]
+        sv_tot = data["sep_new"] + data["sep_decay"]
+        gw = ((sv_tot - av_tot) / av_tot * 100) if av_tot > 0 else (100.0 if sv_tot > 0 else 0.0)
+
+        linked_str = ", ".join(f"@{m}" for m in sorted(data["linked"])[:3])
+        if len(data["linked"]) > 3:
+            linked_str += f" (+{len(data['linked'])-3} more)"
+
+        role_str = "Original Publisher" if data["is_owner_count"] > 0 else "Invited Co-Author"
+
+        ws6.cell(row=row_num, column=1, value=idx).alignment = align_center
+        ws6.cell(row=row_num, column=2, value=f"@{uname}")
+        
+        link_cell = ws6.cell(row=row_num, column=3, value=f"https://www.instagram.com/{uname}/")
+        link_cell.hyperlink = f"https://www.instagram.com/{uname}/"
+        link_cell.font = Font(name="Segoe UI", size=9, color="2563EB", underline="single")
+
+        ws6.cell(row=row_num, column=4, value=linked_str)
+        ws6.cell(row=row_num, column=5, value=role_str).alignment = align_center
+
+        ws6.cell(row=row_num, column=6, value=round(data["aug_new"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=7, value=round(data["aug_decay"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=8, value=round(av_tot)).number_format = "#,##0"
+
+        ws6.cell(row=row_num, column=9, value=round(data["sep_new"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=10, value=round(data["sep_decay"])).number_format = "#,##0"
+        ws6.cell(row=row_num, column=11, value=round(sv_tot)).number_format = "#,##0"
+
+        g_c = ws6.cell(row=row_num, column=12, value=gw / 100)
+        g_c.number_format = "+0.0%;-0.0%;0.0%"
+        g_c.font = green_bold if gw >= 0 else red_bold
+
+        ws6.cell(row=row_num, column=13, value=data["total_reels"]).number_format = "#,##0"
+        ws6.cell(row=row_num, column=14, value="Verified Spiritual Match").alignment = align_center
+
+        for c_idx in range(1, 15):
+            cell = ws6.cell(row=row_num, column=c_idx)
+            cell.border = thin_border
+            if c_idx not in (3, 12):
+                cell.font = dark_regular
+            if c_idx in (6, 7, 8, 9, 10, 11, 13):
+                cell.alignment = align_right
+
+        ws6.row_dimensions[row_num].height = 18
+
+    # Auto-adjust column widths across all 6 sheets
+    for ws in [ws1, ws2, ws3, ws4, ws5, ws6]:
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col[0].column)
             for cell in col:
-                val = str(cell.value or '')
-                if len(val) > max_len:
+                val = str(cell.value or "")
+                if len(val) > max_len and not getattr(cell, "is_merged", False):
                     max_len = len(val)
-            ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
+            ws.column_dimensions[col_letter].width = max(min(max_len + 3, 50), 11)
 
     output_filename = "Instagram_All_Channels_August_September_2026_Delta_Report.xlsx"
     workspace_path = f"/Users/sadhguruwisdomwarrior/.gemini/antigravity/scratch/WisdomWarriors/{output_filename}"
@@ -776,9 +1136,10 @@ def main():
     except Exception as e:
         print(f"Note: Could not save to Downloads: {e}")
 
-    print(f"\nReport generated and saved successfully to:")
+    print(f"\nReport generated and saved successfully with all 6 sheets to:")
     print(f"1. {workspace_path}")
     print(f"2. {artifact_path}")
+    print(f"3. {downloads_path}")
     print("\nCalculation completed with 100% adherence to gemini.md!")
 
 if __name__ == "__main__":
