@@ -699,8 +699,8 @@ def main():
 
     tot_growth = ((tot_sep_v - tot_aug_v) / tot_aug_v * 100) if tot_aug_v > 0 else 0.0
 
-    ws1.cell(row=r, column=1, value="TOTAL ALL REGISTERED MONITORED CHANNELS (461)").font = dark_bold
-    ws1.cell(row=r, column=2, value=len(profile_list)).font = dark_bold
+    ws1.cell(row=r, column=1, value="TOTAL ALL MONITORED CHANNELS (410 in Aug → 461 in Sept)").font = dark_bold
+    ws1.cell(row=r, column=2, value="410 → 461").font = dark_bold
     ws1.cell(row=r, column=3, value=round(tot_aug_v)).number_format = "#,##0"
     ws1.cell(row=r, column=4, value=tot_aug_np).number_format = "#,##0"
     ws1.cell(row=r, column=5, value=tot_aug_ar).number_format = "#,##0"
@@ -895,7 +895,7 @@ def main():
     grand_gw = ((grand_sep_v - grand_aug_v) / grand_aug_v * 100) if grand_aug_v > 0 else 0.0
 
     grand_rows = [
-        ("1. Official Monitored Channels Portfolio (Tabs 2, 3, 4)", len(profile_list), tot_aug_v, tot_aug_np, tot_aug_ar, tot_sep_v, tot_sep_np, tot_sep_ar, tot_growth),
+        ("1. Official Monitored Channels Portfolio (410 in Aug → 461 in Sept)", "410 → 461", tot_aug_v, tot_aug_np, tot_aug_ar, tot_sep_v, tot_sep_np, tot_sep_ar, tot_growth),
         ("2. External Unmonitored Collaborators Ecosystem (Tabs 5, 6)", tot_unmon_accounts, tot_unmon_aug_v, tot_unmon_aug_new, tot_unmon_aug_active, tot_unmon_sep_v, tot_unmon_sep_new, tot_unmon_sep_active, tot_unmon_gw),
     ]
 
@@ -925,8 +925,8 @@ def main():
         r += 1
 
     # Grand Total combined row
-    ws1.cell(row=r, column=1, value="COMBINED ECOSYSTEM GRAND TOTAL (Zero View Overlap)").font = dark_bold
-    ws1.cell(row=r, column=2, value=len(profile_list) + tot_unmon_accounts).font = dark_bold
+    ws1.cell(row=r, column=1, value="COMBINED ECOSYSTEM GRAND TOTAL (1,944 in Aug → 1,995 in Sept)").font = dark_bold
+    ws1.cell(row=r, column=2, value="1,944 → 1,995").font = dark_bold
     ws1.cell(row=r, column=3, value=round(grand_aug_v)).number_format = "#,##0"
     ws1.cell(row=r, column=4, value=grand_aug_new).number_format = "#,##0"
     ws1.cell(row=r, column=5, value=grand_aug_active).number_format = "#,##0"
@@ -1216,24 +1216,28 @@ def main():
         ("Total Monitored Delta Views", 35863889, 29144866, 0.8127, 54466041, 44186869, 0.8113),
         ("• Target Month New Upload Views (New Reels)", 26347272, 21628331, 0.8209, 31049422, 22891017, 0.7372),
         ("• Prior 6-Month Decay Growth (Long-Tail Catalog)", 9563676, 7516538, 0.7860, 24774355, 21295855, 0.8596),
-        ("Total Contributing Channels (Pareto Concentration)", 461, 21, 0.0456, 461, 17, 0.0369),
+        ("Total Monitored Channels (Pareto Concentration)", "410 Channels", "21 Channels", 0.0512, "461 Channels (+51 Onboarded)", "17 Channels", 0.0369),
     ]
 
     r = 6
     for label, ap_tot, a_con, a_pct, sp_tot, s_con, s_pct in t1_rows:
         ws_8020.cell(row=r, column=1, value=label).font = dark_bold if "Total" in label else dark_regular
         c2 = ws_8020.cell(row=r, column=2, value=ap_tot)
-        c2.number_format = "#,##0"
+        if isinstance(ap_tot, (int, float)):
+            c2.number_format = "#,##0"
         c3 = ws_8020.cell(row=r, column=3, value=a_con)
-        c3.number_format = "#,##0"
+        if isinstance(a_con, (int, float)):
+            c3.number_format = "#,##0"
         c4 = ws_8020.cell(row=r, column=4, value=a_pct)
         c4.number_format = "0.0%"
         c4.font = green_bold
 
         c5 = ws_8020.cell(row=r, column=5, value=sp_tot)
-        c5.number_format = "#,##0"
+        if isinstance(sp_tot, (int, float)):
+            c5.number_format = "#,##0"
         c6 = ws_8020.cell(row=r, column=6, value=s_con)
-        c6.number_format = "#,##0"
+        if isinstance(s_con, (int, float)):
+            c6.number_format = "#,##0"
         c7 = ws_8020.cell(row=r, column=7, value=s_pct)
         c7.number_format = "0.0%"
         c7.font = green_bold
@@ -1252,7 +1256,7 @@ def main():
 
     # Table 2: August 2026 80/20 Table
     r += 2
-    ws_8020.cell(row=r, column=1, value="AUGUST 2026 — TOP CHANNELS CONTRIBUTING TO 80% OF DELTA VIEWS (21 CHANNELS)").font = dark_bold
+    ws_8020.cell(row=r, column=1, value="AUGUST 2026 — TOP CHANNELS CONTRIBUTING TO 80% OF DELTA VIEWS (21 of 410 CHANNELS)").font = dark_bold
     r += 1
 
     headers_aug = [
@@ -1322,9 +1326,9 @@ def main():
         r += 1
 
     aug_summary_rows_8020 = [
-        ("Top 21 Channels Subtotal (81.27% of Views)", "21 Channels", 21628331, 1271, 7516538, 4723, 29144866, 5994, 0.8127, 0.8127, highlight_fill, thick_bottom),
-        ("Remaining 440 Channels Portfolio", "440 Channels", 4718941, 1066, 2047138, 3642, 6719023, 4708, 0.1873, 1.0000, None, thin_border),
-        ("AUGUST 2026 MONITORED PORTFOLIO TOTAL", "461 Channels", 26347272, 2337, 9563676, 8365, 35863889, 10702, 1.0000, 1.0000, amber_fill, double_bottom)
+        ("Top 21 Channels Subtotal (81.27% of Views | 5.1% of Channels)", "21 Channels", 21628331, 1271, 7516538, 4723, 29144866, 5994, 0.8127, 0.8127, highlight_fill, thick_bottom),
+        ("Remaining 389 Channels Portfolio (18.73% of Views)", "389 Channels", 4718941, 1066, 2047138, 3642, 6719023, 4708, 0.1873, 1.0000, None, thin_border),
+        ("AUGUST 2026 MONITORED PORTFOLIO TOTAL (410 Active Channels)", "410 Channels", 26347272, 2337, 9563676, 8365, 35863889, 10702, 1.0000, 1.0000, amber_fill, double_bottom)
     ]
     for label, scope_lbl, snv, snp, sdv, sdr, stv, str_cnt, spct, scum, fill_val, bdr in aug_summary_rows_8020:
         ws_8020.cell(row=r, column=1, value="-").alignment = align_center
@@ -1354,7 +1358,7 @@ def main():
 
     # Table 3: September 2026 80/20 Table
     r += 2
-    ws_8020.cell(row=r, column=1, value="SEPTEMBER 2026 — TOP CHANNELS CONTRIBUTING TO 80% OF DELTA VIEWS (17 CHANNELS)").font = dark_bold
+    ws_8020.cell(row=r, column=1, value="SEPTEMBER 2026 — TOP CHANNELS CONTRIBUTING TO 80% OF DELTA VIEWS (17 of 461 CHANNELS)").font = dark_bold
     r += 1
 
     headers_sep = [
@@ -1420,9 +1424,9 @@ def main():
         r += 1
 
     sep_summary_rows_8020 = [
-        ("Top 17 Channels Subtotal (81.13% of Views)", "17 Channels", 22891017, 804, 21295855, 3851, 44186869, 4655, 0.8113, 0.8113, highlight_fill, thick_bottom),
-        ("Remaining 444 Channels Portfolio", "444 Channels", 8158405, 1437, 3478500, 5754, 10279172, 7191, 0.1887, 1.0000, None, thin_border),
-        ("SEPTEMBER 2026 MONITORED PORTFOLIO TOTAL", "461 Channels", 31049422, 2241, 24774355, 9605, 54466041, 11846, 1.0000, 1.0000, amber_fill, double_bottom)
+        ("Top 17 Channels Subtotal (81.13% of Views | 3.7% of Channels)", "17 Channels", 22891017, 804, 21295855, 3851, 44186869, 4655, 0.8113, 0.8113, highlight_fill, thick_bottom),
+        ("Remaining 444 Channels Portfolio (18.87% of Views)", "444 Channels", 8158405, 1437, 3478500, 5754, 10279172, 7191, 0.1887, 1.0000, None, thin_border),
+        ("SEPTEMBER 2026 MONITORED PORTFOLIO TOTAL (461 Channels — +51 Onboarded)", "461 Channels", 31049422, 2241, 24774355, 9605, 54466041, 11846, 1.0000, 1.0000, amber_fill, double_bottom)
     ]
     for label, scope_lbl, snv, snp, sdv, sdr, stv, str_cnt, spct, scum, fill_val, bdr in sep_summary_rows_8020:
         ws_8020.cell(row=r, column=1, value="-").alignment = align_center
