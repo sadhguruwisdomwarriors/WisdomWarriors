@@ -412,10 +412,16 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
         select(MonthlyChannelMetric).where(MonthlyChannelMetric.year_month.startswith(prefix))
     )
     ig_all_metrics = ig_metrics_res.scalars().all()
-    ig_metrics_map = defaultdict(dict) # [instagram_id][year_month] -> metric
+    ig_metrics_map = defaultdict(dict) # [instagram_id or username][year_month] -> metric
     for m in ig_all_metrics:
         available_months_set.add(m.year_month)
-        ig_metrics_map[m.instagram_id][m.year_month] = m
+        if m.instagram_id:
+            ig_metrics_map[str(m.instagram_id).strip()][m.year_month] = m
+            if str(m.instagram_id).startswith("sp_"):
+                ig_metrics_map[str(m.instagram_id)[3:]][m.year_month] = m
+        if m.username:
+            clean_u = str(m.username).strip().lower().lstrip("@")
+            ig_metrics_map[clean_u][m.year_month] = m
 
     available_months = sorted(list(available_months_set)) if available_months_set else []
 
@@ -478,8 +484,11 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
                 else:
                     # Instagram
                     metric = ig_metrics_map.get(ch.instagram_id, {}).get(ym)
+                    if not metric and ch.instagram_id and str(ch.instagram_id).startswith("sp_"):
+                        metric = ig_metrics_map.get(str(ch.instagram_id)[3:], {}).get(ym)
                     if not metric:
-                        metric = ig_metrics_map.get(ch.username, {}).get(ym)
+                        clean_u = str(ch.username).strip().lower().lstrip("@")
+                        metric = ig_metrics_map.get(clean_u, {}).get(ym)
                     
                     ig_views = float(metric.monthly_views if metric else 0.0)
                     ig_reels = int((metric.reels_count if metric and metric.reels_count is not None else (metric.post_count if metric else 0)) or 0)
@@ -533,6 +542,11 @@ async def get_dashboard(id: int, year: int = Query(...), db: AsyncSession = Depe
                 }
             else:
                 metric = ig_metrics_map.get(channel.instagram_id, {}).get(ym)
+                if not metric and channel.instagram_id and str(channel.instagram_id).startswith("sp_"):
+                    metric = ig_metrics_map.get(str(channel.instagram_id)[3:], {}).get(ym)
+                if not metric:
+                    clean_u = str(channel.username).strip().lower().lstrip("@")
+                    metric = ig_metrics_map.get(clean_u, {}).get(ym)
                 r_count = getattr(metric, "reels_count", None) if metric else 0
                 s_count = getattr(metric, "static_post_count", None) if metric else 0
                 if r_count is None and metric:
