@@ -30,7 +30,9 @@ async def generate_comprehensive_report():
     units = fetch_rest("micro_units?select=*&order=unit_number.asc")
     creators = fetch_rest("micro_unit_creators?select=*&order=name.asc")
     channels = fetch_rest("micro_unit_channels?select=*")
-    ig_metrics = fetch_rest("monthly_channel_metrics?select=*&year_month=in.(\"2026-08\",\"2026-09\")")
+    ig_metrics = []
+    for ym in ["2026-08", "2026-09"]:
+        ig_metrics.extend(fetch_rest(f"monthly_channel_metrics?select=*&year_month=eq.{ym}"))
     users = fetch_rest("users?select=id,full_name,email")
 
     user_map = {u["id"]: u["full_name"] for u in users}
@@ -38,10 +40,15 @@ async def generate_comprehensive_report():
     # Map Instagram metrics
     ig_map = {}
     for m in ig_metrics:
-        if m.get("instagram_id"):
-            ig_map.setdefault(str(m["instagram_id"]).strip(), {})[m["year_month"]] = m
-        if m.get("username"):
-            ig_map.setdefault(str(m["username"]).strip().lower().lstrip("@"), {})[m["year_month"]] = m
+        ym = m["year_month"]
+        ig_id = str(m.get("instagram_id") or "").strip()
+        u = str(m.get("username") or "").strip().lower().lstrip("@")
+        if ig_id:
+            ig_map.setdefault(ig_id, {})[ym] = m
+            if ig_id.startswith("sp_"):
+                ig_map.setdefault(ig_id[3:], {})[ym] = m
+        if u:
+            ig_map.setdefault(u, {})[ym] = m
 
     yt_channel_ids = [
         c["username"] for c in channels 
@@ -140,8 +147,17 @@ async def generate_comprehensive_report():
                     cr_yt_sep_p += sep_p
                 else:
                     ig_id = str(ch.get("instagram_id") or "").strip()
-                    m_aug = ig_map.get(ig_id, {}).get("2026-08") or ig_map.get(clean_handle.lower(), {}).get("2026-08")
-                    m_sep = ig_map.get(ig_id, {}).get("2026-09") or ig_map.get(clean_handle.lower(), {}).get("2026-09")
+                    m_aug = ig_map.get(ig_id, {}).get("2026-08")
+                    if not m_aug and ig_id.startswith("sp_"):
+                        m_aug = ig_map.get(ig_id[3:], {}).get("2026-08")
+                    if not m_aug:
+                        m_aug = ig_map.get(clean_handle.lower(), {}).get("2026-08")
+
+                    m_sep = ig_map.get(ig_id, {}).get("2026-09")
+                    if not m_sep and ig_id.startswith("sp_"):
+                        m_sep = ig_map.get(ig_id[3:], {}).get("2026-09")
+                    if not m_sep:
+                        m_sep = ig_map.get(clean_handle.lower(), {}).get("2026-09")
 
                     aug_v = float(m_aug.get("monthly_views") or 0.0) if m_aug else 0.0
                     sep_v = float(m_sep.get("monthly_views") or 0.0) if m_sep else 0.0
