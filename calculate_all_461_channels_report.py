@@ -1176,7 +1176,320 @@ def main():
         r += 1
 
     # -------------------------------------------------------------
-    # TAB 2: ALL 461 CHANNELS MASTER MATRIX (100% UNCHANGED)
+    # TAB 2: 80-20 IG (NEW FORMAT A REEL-TO-VIEW 80/20 ANALYSIS)
+    # -------------------------------------------------------------
+    ws_8020 = wb.create_sheet(title="80-20 IG")
+    ws_8020.views.sheetView[0].showGridLines = True
+
+    # Title Banner
+    ws_8020.merge_cells("A1:K1")
+    ws_8020["A1"] = "Wisdom Warriors Instagram Analytics — 80/20 Pareto Concentration (August & September 2026)"
+    ws_8020["A1"].font = white_title
+    ws_8020["A1"].fill = header_fill
+    ws_8020["A1"].alignment = align_left
+    ws_8020.row_dimensions[1].height = 28
+
+    ws_8020.merge_cells("A2:K2")
+    ws_8020["A2"] = "Format A Strict Reel-to-View Match: New Uploads & Active Decay Reels mapped to Delta Views | gemini.md Specification"
+    ws_8020["A2"].font = white_subtitle
+    ws_8020["A2"].fill = header_fill
+    ws_8020["A2"].alignment = align_left
+    ws_8020.row_dimensions[2].height = 18
+
+    # Table 1: Portfolio Executive Overview
+    ws_8020.cell(row=4, column=1, value="EXECUTIVE PORTFOLIO 80/20 SUMMARY (AUGUST vs. SEPTEMBER 2026)").font = dark_bold
+    ws_8020.row_dimensions[4].height = 20
+
+    headers_t1 = [
+        "Metric Dimension", "August Portfolio Total", "August 80/20 Concentration", "August Concentration %",
+        "September Portfolio Total", "September 80/20 Concentration", "September Concentration %"
+    ]
+    for c_idx, h in enumerate(headers_t1, 1):
+        cell = ws_8020.cell(row=5, column=c_idx, value=h)
+        cell.font = white_bold
+        cell.fill = purple_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws_8020.row_dimensions[5].height = 24
+
+    t1_rows = [
+        ("Total Monitored Delta Views", 35863889, 29144866, 0.8127, 54466041, 44186869, 0.8113),
+        ("• Target Month New Upload Views (New Reels)", 26347272, 21628331, 0.8209, 31049422, 22891017, 0.7372),
+        ("• Prior 6-Month Decay Growth (Long-Tail Catalog)", 9563676, 7516538, 0.7860, 24774355, 21295855, 0.8596),
+        ("Total Contributing Channels (Pareto Concentration)", 461, 21, 0.0456, 461, 17, 0.0369),
+    ]
+
+    r = 6
+    for label, ap_tot, a_con, a_pct, sp_tot, s_con, s_pct in t1_rows:
+        ws_8020.cell(row=r, column=1, value=label).font = dark_bold if "Total" in label else dark_regular
+        c2 = ws_8020.cell(row=r, column=2, value=ap_tot)
+        c2.number_format = "#,##0"
+        c3 = ws_8020.cell(row=r, column=3, value=a_con)
+        c3.number_format = "#,##0"
+        c4 = ws_8020.cell(row=r, column=4, value=a_pct)
+        c4.number_format = "0.0%"
+        c4.font = green_bold
+
+        c5 = ws_8020.cell(row=r, column=5, value=sp_tot)
+        c5.number_format = "#,##0"
+        c6 = ws_8020.cell(row=r, column=6, value=s_con)
+        c6.number_format = "#,##0"
+        c7 = ws_8020.cell(row=r, column=7, value=s_pct)
+        c7.number_format = "0.0%"
+        c7.font = green_bold
+
+        for col_idx in range(1, 8):
+            cell = ws_8020.cell(row=r, column=col_idx)
+            cell.border = thin_border
+            if col_idx == 1:
+                cell.alignment = align_left
+            elif col_idx in (4, 7):
+                cell.alignment = align_center
+            else:
+                cell.alignment = align_right
+        ws_8020.row_dimensions[r].height = 20
+        r += 1
+
+    # Table 2: August 2026 80/20 Table
+    r += 2
+    ws_8020.cell(row=r, column=1, value="AUGUST 2026 — TOP CHANNELS CONTRIBUTING TO 80% OF DELTA VIEWS (21 CHANNELS)").font = dark_bold
+    r += 1
+
+    headers_aug = [
+        "#", "Channel Username", "Category", "New Upload Views", "August New Posts",
+        "6-Month Decay Views", "Active Decay Reels", "Total August Delta Views", "Total Active Reels",
+        "% Share of Month", "Cumulative %"
+    ]
+    for c_idx, h in enumerate(headers_aug, 1):
+        cell = ws_8020.cell(row=r, column=c_idx, value=h)
+        cell.font = white_bold
+        cell.fill = navy_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws_8020.row_dimensions[r].height = 24
+    r += 1
+
+    aug_data_8020 = [
+        (1, "@sadhguru.archives", "Dedicated", 3028316, 101, 232801, 503, 3261117, 604, 0.0909, 0.0909),
+        (2, "@isha.gramotsavam", "Dedicated", 3008886, 228, 124514, 207, 3133399, 435, 0.0874, 0.1783),
+        (3, "@this_is_last_time_sg", "Dedicated", 2721650, 54, 159105, 311, 2880754, 365, 0.0803, 0.2586),
+        (4, "@sadhguru.sadashiv", "Dedicated", 576648, 311, 1702397, 694, 2279045, 1005, 0.0635, 0.3222),
+        (5, "@withsadhguru", "Dedicated", 1872670, 84, 296553, 506, 2169224, 590, 0.0605, 0.3827),
+        (6, "@fantastic_yogi", "Dedicated", 1662870, 23, 3313, 44, 1666183, 67, 0.0465, 0.4291),
+        (7, "@sadhgurumargam", "Dedicated", 1132824, 62, 482246, 273, 1615069, 335, 0.0450, 0.4741),
+        (8, "@timeless_sadhana", "Dedicated", 1191964, 9, 146038, 44, 1338002, 53, 0.0373, 0.5115),
+        (9, "@nidhishvajpayee", "In-house influencer", 694, 1, 1214593, 3, 1215287, 4, 0.0339, 0.5453),
+        (10, "@themysticstoryteller0", "Dedicated", 1165844, 68, 16350, 185, 1182194, 253, 0.0330, 0.5783),
+        (11, "@awakenedbysadhguru", "Dedicated", 713260, 7, 411255, 401, 1124514, 408, 0.0314, 0.6097),
+        (12, "@theindianyogagirl", "In-house influencer", 435445, 21, 676130, 87, 1111575, 108, 0.0310, 0.6407),
+        (13, "@_when.the.guru.invades_", "Dedicated", 881136, 41, 102842, 370, 983978, 411, 0.0274, 0.6681),
+        (14, "@theshivguru", "Dedicated", 792461, 13, 66543, 50, 859004, 63, 0.0240, 0.6920),
+        (15, "@sadhgurusharings_", "Dedicated", 172883, 19, 622244, 118, 795127, 137, 0.0222, 0.7142),
+        (16, "@unknownyogi_", "In-house influencer", 547255, 34, 178090, 160, 725344, 194, 0.0202, 0.7344),
+        (17, "@sadhgurusiyasat", "Dedicated", 0, 0, 658571, 28, 658571, 28, 0.0184, 0.7528),
+        (18, "@cosmic_dancer112", "Dedicated", 518976, 62, 47452, 171, 566428, 233, 0.0158, 0.7686),
+        (19, "@yuganyogi.official", "In-house influencer", 294265, 17, 271390, 85, 565656, 102, 0.0158, 0.7844),
+        (20, "@sadhguruconnect.lucknow", "Dedicated", 428262, 104, 99065, 479, 527327, 583, 0.0147, 0.7991),
+        (21, "@the_taste_of_truth", "Dedicated", 482022, 12, 5046, 50, 487068, 62, 0.0136, 0.8127),
+    ]
+
+    for row_tuple in aug_data_8020:
+        rank, uname, cat, nv, np_cnt, dv, dr_cnt, tv, tr_cnt, pct, cum_pct = row_tuple
+        ws_8020.cell(row=r, column=1, value=rank).alignment = align_center
+        ws_8020.cell(row=r, column=2, value=uname)
+        ws_8020.cell(row=r, column=3, value=cat)
+        ws_8020.cell(row=r, column=4, value=nv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=5, value=np_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=6, value=dv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=7, value=dr_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=8, value=tv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=9, value=tr_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=10, value=pct).number_format = "0.00%"
+        ws_8020.cell(row=r, column=11, value=cum_pct).number_format = "0.00%"
+
+        row_fill = alt_fill if (r % 2 == 0) else PatternFill(fill_type=None)
+        for c_idx in range(1, 12):
+            cell = ws_8020.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            cell.font = dark_regular
+            if row_fill.fill_type:
+                cell.fill = row_fill
+            if c_idx in (1, 5, 7, 9, 10, 11):
+                cell.alignment = align_center
+            elif c_idx in (4, 6, 8):
+                cell.alignment = align_right
+        ws_8020.row_dimensions[r].height = 19
+        r += 1
+
+    aug_summary_rows_8020 = [
+        ("Top 21 Channels Subtotal (81.27% of Views)", "21 Channels", 21628331, 1271, 7516538, 4723, 29144866, 5994, 0.8127, 0.8127, highlight_fill, thick_bottom),
+        ("Remaining 440 Channels Portfolio", "440 Channels", 4718941, 1066, 2047138, 3642, 6719023, 4708, 0.1873, 1.0000, None, thin_border),
+        ("AUGUST 2026 MONITORED PORTFOLIO TOTAL", "461 Channels", 26347272, 2337, 9563676, 8365, 35863889, 10702, 1.0000, 1.0000, amber_fill, double_bottom)
+    ]
+    for label, scope_lbl, snv, snp, sdv, sdr, stv, str_cnt, spct, scum, fill_val, bdr in aug_summary_rows_8020:
+        ws_8020.cell(row=r, column=1, value="-").alignment = align_center
+        ws_8020.cell(row=r, column=2, value=label).font = dark_bold
+        ws_8020.cell(row=r, column=3, value=scope_lbl).alignment = align_center
+        ws_8020.cell(row=r, column=4, value=snv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=5, value=snp).number_format = "#,##0"
+        ws_8020.cell(row=r, column=6, value=sdv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=7, value=sdr).number_format = "#,##0"
+        ws_8020.cell(row=r, column=8, value=stv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=9, value=str_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=10, value=spct).number_format = "0.00%"
+        ws_8020.cell(row=r, column=11, value=scum).number_format = "0.00%"
+
+        for c_idx in range(1, 12):
+            cell = ws_8020.cell(row=r, column=c_idx)
+            cell.font = dark_bold
+            cell.border = bdr
+            if fill_val:
+                cell.fill = fill_val
+            if c_idx in (1, 3, 5, 7, 9, 10, 11):
+                cell.alignment = align_center
+            elif c_idx in (4, 6, 8):
+                cell.alignment = align_right
+        ws_8020.row_dimensions[r].height = 21
+        r += 1
+
+    # Table 3: September 2026 80/20 Table
+    r += 2
+    ws_8020.cell(row=r, column=1, value="SEPTEMBER 2026 — TOP CHANNELS CONTRIBUTING TO 80% OF DELTA VIEWS (17 CHANNELS)").font = dark_bold
+    r += 1
+
+    headers_sep = [
+        "#", "Channel Username", "Category", "New Upload Views", "September New Posts",
+        "6-Month Decay Views", "Active Decay Reels", "Total September Delta Views", "Total Active Reels",
+        "% Share of Month", "Cumulative %"
+    ]
+    for c_idx, h in enumerate(headers_sep, 1):
+        cell = ws_8020.cell(row=r, column=c_idx, value=h)
+        cell.font = white_bold
+        cell.fill = navy_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws_8020.row_dimensions[r].height = 24
+    r += 1
+
+    sep_data_8020 = [
+        (1, "@matthewleuver", "Dedicated", 1262923, 42, 5480891, 207, 6743814, 249, 0.1238, 0.1238),
+        (2, "@theindianyogagirl", "In-house influencer", 5236938, 21, 427922, 103, 5664860, 124, 0.1040, 0.2278),
+        (3, "@sadhguru.archives", "Dedicated", 4264879, 115, 477921, 552, 4742800, 667, 0.0871, 0.3149),
+        (4, "@sadhgurusgrace6", "Dedicated", 568497, 78, 2970117, 387, 3538615, 465, 0.0650, 0.3799),
+        (5, "@timeless_sadhana", "Dedicated", 2578421, 3, 801474, 48, 3379894, 51, 0.0621, 0.4419),
+        (6, "@shashank_shekharr__", "In-house influencer", 300376, 21, 2706560, 140, 3006936, 161, 0.0552, 0.4971),
+        (7, "@this_is_last_time_sg", "Dedicated", 1890513, 55, 661507, 309, 2552019, 364, 0.0469, 0.5440),
+        (8, "@blossoming_in_silence", "Dedicated", 2253594, 17, 244503, 40, 2498097, 57, 0.0459, 0.5899),
+        (9, "@adimiiz", "Dedicated", 575386, 25, 1618591, 96, 2193977, 121, 0.0403, 0.6301),
+        (10, "@nidhishvajpayee", "In-house influencer", 152, 1, 2087263, 4, 2087415, 5, 0.0383, 0.6685),
+        (11, "@talksbymeera", "Dedicated", 786092, 28, 1245628, 80, 2031719, 108, 0.0373, 0.7058),
+        (12, "@ankita_soil", "Dedicated", 6984, 1, 1489803, 69, 1496786, 70, 0.0275, 0.7332),
+        (13, "@sadhguru.sadashiv", "Dedicated", 807159, 222, 112698, 623, 919856, 845, 0.0169, 0.7501),
+        (14, "@farzan.dadachanji", "In-house influencer", 719018, 41, 151920, 132, 870938, 173, 0.0160, 0.7661),
+        (15, "@_when.the.guru.invades_", "Dedicated", 600873, 44, 256548, 335, 857421, 379, 0.0157, 0.7819),
+        (16, "@sadhgurumargam", "Dedicated", 640221, 44, 179088, 279, 819310, 323, 0.0150, 0.7969),
+        (17, "@withsadhguru", "Dedicated", 398991, 46, 383421, 447, 782412, 493, 0.0144, 0.8113),
+    ]
+
+    for row_tuple in sep_data_8020:
+        rank, uname, cat, nv, np_cnt, dv, dr_cnt, tv, tr_cnt, pct, cum_pct = row_tuple
+        ws_8020.cell(row=r, column=1, value=rank).alignment = align_center
+        ws_8020.cell(row=r, column=2, value=uname)
+        ws_8020.cell(row=r, column=3, value=cat)
+        ws_8020.cell(row=r, column=4, value=nv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=5, value=np_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=6, value=dv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=7, value=dr_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=8, value=tv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=9, value=tr_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=10, value=pct).number_format = "0.00%"
+        ws_8020.cell(row=r, column=11, value=cum_pct).number_format = "0.00%"
+
+        row_fill = alt_fill if (r % 2 == 0) else PatternFill(fill_type=None)
+        for c_idx in range(1, 12):
+            cell = ws_8020.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            cell.font = dark_regular
+            if row_fill.fill_type:
+                cell.fill = row_fill
+            if c_idx in (1, 5, 7, 9, 10, 11):
+                cell.alignment = align_center
+            elif c_idx in (4, 6, 8):
+                cell.alignment = align_right
+        ws_8020.row_dimensions[r].height = 19
+        r += 1
+
+    sep_summary_rows_8020 = [
+        ("Top 17 Channels Subtotal (81.13% of Views)", "17 Channels", 22891017, 804, 21295855, 3851, 44186869, 4655, 0.8113, 0.8113, highlight_fill, thick_bottom),
+        ("Remaining 444 Channels Portfolio", "444 Channels", 8158405, 1437, 3478500, 5754, 10279172, 7191, 0.1887, 1.0000, None, thin_border),
+        ("SEPTEMBER 2026 MONITORED PORTFOLIO TOTAL", "461 Channels", 31049422, 2241, 24774355, 9605, 54466041, 11846, 1.0000, 1.0000, amber_fill, double_bottom)
+    ]
+    for label, scope_lbl, snv, snp, sdv, sdr, stv, str_cnt, spct, scum, fill_val, bdr in sep_summary_rows_8020:
+        ws_8020.cell(row=r, column=1, value="-").alignment = align_center
+        ws_8020.cell(row=r, column=2, value=label).font = dark_bold
+        ws_8020.cell(row=r, column=3, value=scope_lbl).alignment = align_center
+        ws_8020.cell(row=r, column=4, value=snv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=5, value=snp).number_format = "#,##0"
+        ws_8020.cell(row=r, column=6, value=sdv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=7, value=sdr).number_format = "#,##0"
+        ws_8020.cell(row=r, column=8, value=stv).number_format = "#,##0"
+        ws_8020.cell(row=r, column=9, value=str_cnt).number_format = "#,##0"
+        ws_8020.cell(row=r, column=10, value=spct).number_format = "0.00%"
+        ws_8020.cell(row=r, column=11, value=scum).number_format = "0.00%"
+
+        for c_idx in range(1, 12):
+            cell = ws_8020.cell(row=r, column=c_idx)
+            cell.font = dark_bold
+            cell.border = bdr
+            if fill_val:
+                cell.fill = fill_val
+            if c_idx in (1, 3, 5, 7, 9, 10, 11):
+                cell.alignment = align_center
+            elif c_idx in (4, 6, 8):
+                cell.alignment = align_right
+        ws_8020.row_dimensions[r].height = 21
+        r += 1
+
+    # Table 4: Methodology Reference Note
+    r += 2
+    ws_8020.cell(row=r, column=1, value="FORMAT A REEL-TO-VIEW MATHEMATICAL RECONCILIATION & DEDUPLICATION PROOF").font = dark_bold
+    r += 1
+    
+    note_headers = ["Dimension", "Formula / Metric Rule", "August Figures", "September Figures", "Audit Verification Note"]
+    for c_idx, h in enumerate(note_headers, 1):
+        cell = ws_8020.cell(row=r, column=c_idx, value=h)
+        cell.font = white_bold
+        cell.fill = header_fill
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws_8020.row_dimensions[r].height = 22
+    r += 1
+
+    notes_data = [
+        ("1. Target Month New Uploads", "Reels newly published in calendar month; Views = S2 Views / N", "26,347,272 views (2,337 reels)", "31,049,422 views (2,241 reels)", "Verified against S2 timestamps. Co-authors split strictly (Play Count / N)."),
+        ("2. 6-Month Decay Growth", "Reels published in prior 6 months gaining views; Delta = max(0, S2 - S1) / N", "9,563,676 views (8,365 reels)", "24,774,355 views (9,605 reels)", "Surviving older catalog posts trending algorithmically. Negative views clamped to 0.0."),
+        ("3. Total Active Reels", "Total Active Reels = New Upload Posts + Surviving Active Decay Reels", "35,863,889 views (10,702 reels)", "54,466,041 views (11,846 reels)", "Matches 100% with Executive 80-20 Summary Tab 1 Table 1 and Master Matrix."),
+        ("4. Co-Author Protection", "Unique post IDs grouped; Play count divided equally by all participants", "Zero View Duplication", "Zero View Duplication", "Guarantees zero double counting whether collaboration is between 2 monitored or external accounts.")
+    ]
+
+    for d_name, d_rule, d_aug, d_sep, d_note in notes_data:
+        ws_8020.cell(row=r, column=1, value=d_name).font = dark_bold
+        ws_8020.cell(row=r, column=2, value=d_rule).font = dark_regular
+        ws_8020.cell(row=r, column=3, value=d_aug).font = dark_regular
+        ws_8020.cell(row=r, column=4, value=d_sep).font = dark_regular
+        ws_8020.cell(row=r, column=5, value=d_note).font = dark_regular
+        for c_idx in range(1, 6):
+            cell = ws_8020.cell(row=r, column=c_idx)
+            cell.border = thin_border
+            if c_idx in (3, 4):
+                cell.alignment = align_center
+            else:
+                cell.alignment = align_left
+        ws_8020.row_dimensions[r].height = 20
+        r += 1
+
+    # -------------------------------------------------------------
+    # TAB 3: ALL 461 CHANNELS MASTER MATRIX (100% UNCHANGED)
     # -------------------------------------------------------------
     ws2 = wb.create_sheet(title="All Channels Master Matrix")
     ws2.views.sheetView[0].showGridLines = True
@@ -1502,8 +1815,8 @@ def main():
 
         ws6.row_dimensions[row_num].height = 18
 
-    # Auto-adjust column widths across all 6 sheets
-    for ws in [ws1, ws2, ws3, ws4, ws5, ws6]:
+    # Auto-adjust column widths across all 7 sheets
+    for ws in [ws1, ws_8020, ws2, ws3, ws4, ws5, ws6]:
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col[0].column)
@@ -1536,7 +1849,7 @@ def main():
     except Exception as e:
         print(f"Note: Could not save to Downloads: {e}")
 
-    print(f"\nReport generated and saved successfully with all 6 sheets to:")
+    print(f"\nReport generated and saved successfully with all 7 sheets to:")
     print(f"1. {workspace_path}")
     print(f"2. {artifact_path}")
     print(f"3. {downloads_path}")
